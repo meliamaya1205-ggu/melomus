@@ -25,6 +25,31 @@ export interface AuthResponse<T = unknown> {
   error?: string;
 }
 
+const LOCAL_AUTH_SESSION_KEY = 'melomus_local_auth_session';
+
+function getLocalStoredUser(): AuthUser | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(LOCAL_AUTH_SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function setLocalStoredUser(user: AuthUser | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (user) {
+      localStorage.setItem(LOCAL_AUTH_SESSION_KEY, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(LOCAL_AUTH_SESSION_KEY);
+    }
+  } catch (e) {
+    console.error('Error saving local auth session:', e);
+  }
+}
+
 export const authService = {
   /**
    * Check if Supabase connection is active
@@ -44,9 +69,37 @@ export const authService = {
     familyName?: string;
   }): Promise<AuthResponse<{ user: AuthUser; family: FamilyAccount }>> {
     if (!supabase) {
+      const userProfile: AuthUser = {
+        id: `user_local_${Date.now()}`,
+        familyId: `fam_local_${Date.now()}`,
+        email: params.email,
+        name: params.name,
+        role: 'FAMILY_ADULT',
+        relationship: params.relationship,
+        memberId: params.relationship,
+        avatarColor: params.relationship === 'papa' ? '#3b82f6' : '#ec4899',
+        avatarEmoji: params.relationship === 'papa' ? '🌿' : '🌸',
+      };
+
+      const family: FamilyAccount = {
+        id: userProfile.familyId,
+        name: params.familyName || 'Nuestra Familia',
+        isBothCoAdminsActive: false,
+        createdAt: new Date().toISOString(),
+      };
+
+      if (params.relationship === 'mama') {
+        family.primaryAdultMamaId = userProfile.id;
+        family.primaryAdultMamaEmail = userProfile.email;
+      } else {
+        family.primaryAdultPapaId = userProfile.id;
+        family.primaryAdultPapaEmail = userProfile.email;
+      }
+
+      setLocalStoredUser(userProfile);
       return {
-        success: false,
-        error: 'Supabase no está configurado en las variables de entorno.',
+        success: true,
+        data: { user: userProfile, family },
       };
     }
 
@@ -129,9 +182,30 @@ export const authService = {
    */
   async signIn(email: string, password: string): Promise<AuthResponse<{ user: AuthUser; family: FamilyAccount }>> {
     if (!supabase) {
+      const existing = getLocalStoredUser();
+      const user: AuthUser = existing || {
+        id: `user_local_${Date.now()}`,
+        familyId: `fam_local_${Date.now()}`,
+        email,
+        name: 'Mamá',
+        role: 'FAMILY_ADULT',
+        relationship: 'mama',
+        memberId: 'mama',
+        avatarColor: '#ec4899',
+        avatarEmoji: '🌸',
+      };
+
+      const family: FamilyAccount = {
+        id: user.familyId,
+        name: 'Nuestra Familia',
+        isBothCoAdminsActive: true,
+        createdAt: new Date().toISOString(),
+      };
+
+      setLocalStoredUser(user);
       return {
-        success: false,
-        error: 'Supabase no está configurado en las variables de entorno.',
+        success: true,
+        data: { user, family },
       };
     }
 
@@ -216,6 +290,7 @@ export const authService = {
    * Sign out current user
    */
   async signOut(): Promise<void> {
+    setLocalStoredUser(null);
     if (supabase) {
       await supabase.auth.signOut();
     }
@@ -279,7 +354,9 @@ export const authService = {
    * Fetch currently authenticated user and profile
    */
   async getCurrentUser(): Promise<AuthUser | null> {
-    if (!supabase) return null;
+    if (!supabase) {
+      return getLocalStoredUser();
+    }
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -314,9 +391,26 @@ export const authService = {
    */
   async createCoAdminInvite(targetRelationship: PrimaryAdultRelationship): Promise<CoAdminInviteResult> {
     if (!supabase) {
+      const token = `tok_local_${Date.now()}`;
+      const expiresAt = new Date(Date.now() + 48 * 3600 * 1000).toISOString();
+      const inviteUrl = `${window.location.origin}/?vincular=${token}`;
+      try {
+        localStorage.setItem(`melomus_invite_${token}`, JSON.stringify({
+          valid: true,
+          familyId: 'fam_local',
+          familyName: 'Nuestra Familia',
+          inviterName: targetRelationship === 'papa' ? 'Mamá' : 'Papá',
+          targetRelationship,
+          expiresAt,
+        }));
+      } catch (e) {
+        console.warn('Could not save local invite:', e);
+      }
       return {
-        success: false,
-        message: 'Supabase no está configurado.',
+        success: true,
+        token,
+        inviteUrl,
+        expiresAt,
       };
     }
 
@@ -353,9 +447,18 @@ export const authService = {
    */
   async getInviteDetails(token: string): Promise<InviteDetailsResult> {
     if (!supabase) {
+      try {
+        const raw = localStorage.getItem(`melomus_invite_${token}`);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          return parsed;
+        }
+      } catch {
+        // fall through
+      }
       return {
         valid: false,
-        message: 'Supabase no está configurado.',
+        message: 'El enlace de vinculación no es válido o ha expirado.',
       };
     }
 
@@ -399,9 +502,17 @@ export const authService = {
    */
   async claimCoAdminInvite(token: string, name: string): Promise<AuthResponse<{ familyId: string; relationship: string }>> {
     if (!supabase) {
+      try {
+        localStorage.removeItem(`melomus_invite_${token}`);
+      } catch {
+        // ignore
+      }
       return {
-        success: false,
-        error: 'Supabase no está configurado.',
+        success: true,
+        data: {
+          familyId: 'fam_local',
+          relationship: 'papa',
+        },
       };
     }
 

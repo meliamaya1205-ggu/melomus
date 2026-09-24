@@ -45,14 +45,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [familyName, setFamilyName] = useState('Nuestra Familia');
 
   // Claim invite state
+  const [manualToken, setManualToken] = useState('');
   const [inviteDetails, setInviteDetails] = useState<InviteDetailsResult | null>(null);
   const [checkingInvite, setCheckingInvite] = useState(false);
 
-  const verifyInvite = async (token: string) => {
+  const verifyInvite = async (tokenInput: string) => {
+    let cleanToken = tokenInput.trim();
+    if (!cleanToken) return;
+    try {
+      if (cleanToken.includes('?')) {
+        const url = new URL(cleanToken.startsWith('http') ? cleanToken : `https://${cleanToken}`);
+        cleanToken = url.searchParams.get('vincular') || url.searchParams.get('token') || cleanToken;
+      }
+    } catch {
+      // not a url, use cleanToken directly
+    }
     setCheckingInvite(true);
     setErrorMessage(null);
     try {
-      const details = await authService.getInviteDetails(token);
+      const details = await authService.getInviteDetails(cleanToken);
       setInviteDetails(details);
       if (details.valid && details.targetRelationship) {
         setRelationship(details.targetRelationship);
@@ -147,7 +158,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const handleClaimInvite = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inviteToken) return;
+    const activeToken = inviteToken || manualToken.trim();
+    if (!activeToken) {
+      setErrorMessage('Por favor ingresa un código o enlace de vinculación válido.');
+      return;
+    }
     if (!name.trim()) {
       setErrorMessage('Por favor ingresa tu nombre.');
       return;
@@ -186,7 +201,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
 
       // 2. Claim co-admin link
-      const claimRes = await authService.claimCoAdminInvite(inviteToken, name);
+      const claimRes = await authService.claimCoAdminInvite(activeToken, name);
       setLoading(false);
 
       if (claimRes.success && claimRes.data) {
@@ -337,16 +352,43 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </button>
               </form>
             ) : (
-              <div className="text-center py-4 space-y-3">
-                <p className="text-xs text-stone-600">
-                  {errorMessage || 'Este enlace no es válido o ha expirado.'}
-                </p>
-                <button
-                  onClick={() => setMode('signin')}
-                  className="text-xs text-amber-600 hover:underline font-bold"
-                >
-                  Ir al inicio de sesión tradicional
-                </button>
+              <div className="space-y-4">
+                <div className="bg-stone-50 border border-stone-200/80 rounded-2xl p-4 text-xs text-stone-600 space-y-3">
+                  <div className="flex items-center gap-2 text-stone-900 font-bold">
+                    <ShieldCheck className="w-4 h-4 text-amber-600" />
+                    <span>Unirte mediante Invitación</span>
+                  </div>
+                  <p className="leading-relaxed">
+                    Si tu pareja te compartió un enlace seguro de WhatsApp o un código de vinculación, ingrésalo a continuación para unirte como segundo adulto principal:
+                  </p>
+                  <div>
+                    <input
+                      type="text"
+                      value={manualToken}
+                      onChange={(e) => setManualToken(e.target.value)}
+                      placeholder="Pega el enlace o código (ej: tok_...)"
+                      className="w-full px-3.5 py-2.5 bg-white border border-stone-300 rounded-xl text-xs text-stone-800 focus:bg-white focus:border-amber-500 outline-hidden"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!manualToken.trim() || checkingInvite}
+                    onClick={() => verifyInvite(manualToken)}
+                    className="w-full py-2.5 px-4 bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-600 hover:to-rose-600 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    <span>{checkingInvite ? 'Verificando...' : 'Verificar Invitación'}</span>
+                  </button>
+                </div>
+
+                <div className="text-center pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setMode('signin')}
+                    className="text-xs text-amber-600 hover:underline font-bold cursor-pointer"
+                  >
+                    Volver a iniciar sesión tradicional
+                  </button>
+                </div>
               </div>
             )}
           </div>

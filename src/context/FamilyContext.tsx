@@ -194,6 +194,9 @@ interface FamilyContextType {
   openLinkCoAdminModal: () => void;
   logoutAuthUser: () => Promise<void>;
   isSupabaseAuthActive: boolean;
+  isAuthLoading: boolean;
+  authenticatedUser: AuthUser | null;
+  handleAuthSuccess: (user: AuthUser) => void;
 
   // Reminders & Notifications
   reminders: AppReminder[];
@@ -235,16 +238,17 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [linkCoAdminModalOpen, setLinkCoAdminModalOpen] = useState(false);
   const [authenticatedUser, setAuthenticatedUser] = useState<AuthUser | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
 
   const isSyncingFromRemoteRef = useRef(false);
 
   // Sync Supabase Auth session on mount and initialize Realtime cloud session
   useEffect(() => {
-    if (authService.isConfigured()) {
-      authService.getCurrentUser().then(async (user) => {
-        if (user) {
-          setAuthenticatedUser(user);
-          setActiveProfileId(user.relationship);
+    authService.getCurrentUser().then(async (user) => {
+      if (user) {
+        setAuthenticatedUser(user);
+        setActiveProfileId(user.relationship);
+        if (authService.isConfigured()) {
           dataServiceManager.useCloudSync();
           setDataMode('cloud_sync');
           const family = dataService.getFamilyAccount() || {
@@ -262,8 +266,13 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             }, 60);
           }
         }
-      });
+      }
+      setIsAuthLoading(false);
+    }).catch(() => {
+      setIsAuthLoading(false);
+    });
 
+    if (authService.isConfigured()) {
       const { unsubscribe } = authService.onAuthStateChange(async (user) => {
         setAuthenticatedUser(user);
         if (user) {
@@ -289,6 +298,7 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           dataServiceManager.useLocalDemo();
           setDataMode('local_demo');
         }
+        setIsAuthLoading(false);
       });
 
       return () => unsubscribe();
@@ -470,6 +480,30 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setAuthenticatedUser(null);
     setActiveProfileId('mama');
     setState(dataService.loadFullState());
+  };
+
+  const handleAuthSuccess = async (user: AuthUser) => {
+    setAuthenticatedUser(user);
+    setActiveProfileId(user.relationship);
+    if (authService.isConfigured()) {
+      dataServiceManager.useCloudSync();
+      setDataMode('cloud_sync');
+      const family = dataService.getFamilyAccount() || {
+        id: user.familyId,
+        name: 'Nuestra Familia',
+        isBothCoAdminsActive: true,
+        createdAt: new Date().toISOString(),
+      };
+      if (dataService.initCloudSession) {
+        const cloudState = await dataService.initCloudSession(user, family);
+        isSyncingFromRemoteRef.current = true;
+        setState(cloudState);
+        setTimeout(() => {
+          isSyncingFromRemoteRef.current = false;
+        }, 60);
+      }
+    }
+    setAuthModalOpen(false);
   };
 
   const activeMember = state.members.find((m) => m.id === activeProfileId);
@@ -1754,6 +1788,9 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         openLinkCoAdminModal,
         logoutAuthUser,
         isSupabaseAuthActive,
+        isAuthLoading,
+        authenticatedUser,
+        handleAuthSuccess,
         reminders: state.reminders,
         addReminder,
         updateReminder,

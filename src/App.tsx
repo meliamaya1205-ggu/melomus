@@ -10,6 +10,8 @@ import { NotificationDrawer } from './components/notifications/NotificationDrawe
 import { AuthModal } from './components/auth/AuthModal';
 import { LinkCoAdminModal } from './components/auth/LinkCoAdminModal';
 
+import { WelcomeScreen } from './components/auth/WelcomeScreen';
+
 // Views
 import { DashboardView } from './views/DashboardView';
 import { TasksView } from './views/TasksView';
@@ -38,6 +40,7 @@ const MainContent: React.FC = () => {
     setLinkCoAdminModalOpen,
     currentUser,
     config,
+    handleAuthSuccess,
   } = useFamily();
   const { tokens } = useTheme();
 
@@ -109,6 +112,7 @@ const MainContent: React.FC = () => {
         onClose={() => setAuthModalOpen(false)}
         initialMode={authModalMode}
         inviteToken={inviteToken}
+        onAuthSuccess={handleAuthSuccess}
       />
       <LinkCoAdminModal
         isOpen={linkCoAdminModalOpen}
@@ -121,7 +125,59 @@ const MainContent: React.FC = () => {
 };
 
 const ThemedApp: React.FC = () => {
-  const { activeProfileId, activeMember } = useFamily();
+  const {
+    activeProfileId,
+    activeMember,
+    authenticatedUser,
+    isAuthLoading,
+    authModalOpen,
+    setAuthModalOpen,
+    authModalMode,
+    inviteToken,
+    openAuthModal,
+    handleAuthSuccess,
+  } = useFamily();
+
+  // 1. Sleek splash screen while checking session
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-[#faf8f5] flex flex-col items-center justify-center p-6 text-center select-none">
+        <div className="relative mb-5 animate-pulse">
+          <div className="w-20 h-20 rounded-3xl overflow-hidden shadow-lg border border-stone-200/80 bg-white p-1">
+            <img
+              src="/logo.png"
+              alt="MELOMUS"
+              className="w-full h-full object-cover rounded-2xl"
+            />
+          </div>
+        </div>
+        <h1 className="text-2xl font-extrabold tracking-tight text-stone-900 mb-1">MELOMUS</h1>
+        <p className="text-xs text-stone-500 font-medium animate-pulse">Cargando tu espacio familiar...</p>
+      </div>
+    );
+  }
+
+  // 2. Unauthenticated user: Welcome Screen Gate
+  if (!authenticatedUser) {
+    return (
+      <>
+        <WelcomeScreen
+          onCreateFamily={() => openAuthModal('signup')}
+          onSignIn={() => openAuthModal('signin')}
+          onClaimInvite={() => openAuthModal('claim_invite')}
+        />
+        <AuthModal
+          isOpen={authModalOpen}
+          onClose={() => setAuthModalOpen(false)}
+          initialMode={authModalMode}
+          inviteToken={inviteToken}
+          onAuthSuccess={handleAuthSuccess}
+        />
+      </>
+    );
+  }
+
+  // 3. Authenticated user: Full app with theme
   return (
     <ThemeProvider
       activeProfileId={activeProfileId}
