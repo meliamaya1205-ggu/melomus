@@ -1,0 +1,54 @@
+{
+  "name": "MELOMUS",
+  "short_name": "MELOMUS",
+  "description": "Organiza tu hogar, conecta a tu familia y simplifica tu día.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#faf8f5",
+  "theme_color": "#d97706",
+  "orientation": "portrait",
+  "categories": ["lifestyle", "productivity", "family"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nuevo Recordatorio",
+      "short_name": "Recordatorio",
+      "description": "¿Qué necesitas recordar hoy?",
+      "url": "/?action=quick_reminder",
+      "icons": [{ "src": "/logo.png", "sizes": "any", "type": "image/png" }]
+    },
+    {
+      "name": "Calendario Familiar",
+      "short_name": "Calendario",
+      "description": "Ver eventos y compromisos del hogar",
+      "url": "/?tab=calendar",
+      "icons": [{ "src": "/logo.png", "sizes": "any", "type": "image/png" }]
+    },
+    {
+      "name": "Tareas y Deberes",
+      "short_name": "Tareas",
+      "description": "Lista de tareas pendientes",
+      "url": "/?tab=tasks",
+      "icons": [{ "src": "/logo.png", "sizes": "any", "type": "image/png" }]
+    }
+  ]
+}
