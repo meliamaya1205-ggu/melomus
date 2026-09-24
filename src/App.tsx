@@ -157,23 +157,14 @@ const ThemedApp: React.FC = () => {
     );
   }
 
-  // 2. Unauthenticated user: Welcome Screen Gate
+  // 2. Unauthenticated user: Welcome & Dedicated Auth Screen Gate
   if (!authenticatedUser) {
     return (
-      <>
-        <WelcomeScreen
-          onCreateFamily={() => openAuthModal('signup')}
-          onSignIn={() => openAuthModal('signin')}
-          onClaimInvite={() => openAuthModal('claim_invite')}
-        />
-        <AuthModal
-          isOpen={authModalOpen}
-          onClose={() => setAuthModalOpen(false)}
-          initialMode={authModalMode}
-          inviteToken={inviteToken}
-          onAuthSuccess={handleAuthSuccess}
-        />
-      </>
+      <WelcomeScreen
+        initialView={inviteToken ? 'claim_invite' : 'welcome'}
+        inviteToken={inviteToken}
+        onAuthSuccess={handleAuthSuccess}
+      />
     );
   }
 

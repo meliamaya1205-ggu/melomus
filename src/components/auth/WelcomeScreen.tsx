@@ -1,17 +1,85 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserPlus, LogIn, Link2, Heart, Shield, Sparkles } from 'lucide-react';
+import { CreateFamilyView } from './CreateFamilyView';
+import { SignInView } from './SignInView';
+import { ClaimInviteView } from './ClaimInviteView';
+import { ResetPasswordView } from './ResetPasswordView';
+import { AuthUser } from '../../types/auth';
+
+export type AuthScreenView = 'welcome' | 'signup' | 'signin' | 'claim_invite' | 'reset';
 
 interface WelcomeScreenProps {
-  onCreateFamily: () => void;
-  onSignIn: () => void;
-  onClaimInvite: () => void;
+  initialView?: AuthScreenView;
+  inviteToken?: string | null;
+  onAuthSuccess: (user: AuthUser) => void;
+  // Optional callbacks for compatibility
+  onCreateFamily?: () => void;
+  onSignIn?: () => void;
+  onClaimInvite?: () => void;
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
+  initialView = 'welcome',
+  inviteToken = null,
+  onAuthSuccess,
   onCreateFamily,
   onSignIn,
   onClaimInvite,
 }) => {
+  const [currentView, setCurrentView] = useState<AuthScreenView>(
+    inviteToken ? 'claim_invite' : initialView
+  );
+
+  // Sync if inviteToken arrives dynamically
+  useEffect(() => {
+    if (inviteToken) {
+      setCurrentView('claim_invite');
+    }
+  }, [inviteToken]);
+
+  // If a subview is requested, render the dedicated screen
+  if (currentView === 'signup') {
+    return (
+      <CreateFamilyView
+        onBackToWelcome={() => setCurrentView('welcome')}
+        onGoToSignIn={() => setCurrentView('signin')}
+        onAuthSuccess={onAuthSuccess}
+      />
+    );
+  }
+
+  if (currentView === 'signin') {
+    return (
+      <SignInView
+        onBackToWelcome={() => setCurrentView('welcome')}
+        onGoToSignUp={() => setCurrentView('signup')}
+        onGoToResetPassword={() => setCurrentView('reset')}
+        onAuthSuccess={onAuthSuccess}
+      />
+    );
+  }
+
+  if (currentView === 'claim_invite') {
+    return (
+      <ClaimInviteView
+        initialToken={inviteToken}
+        onBackToWelcome={() => setCurrentView('welcome')}
+        onGoToSignIn={() => setCurrentView('signin')}
+        onAuthSuccess={onAuthSuccess}
+      />
+    );
+  }
+
+  if (currentView === 'reset') {
+    return (
+      <ResetPasswordView
+        onBackToWelcome={() => setCurrentView('welcome')}
+        onBackToSignIn={() => setCurrentView('signin')}
+      />
+    );
+  }
+
+  // DEFAULT VIEW: WELCOME SCREEN
   return (
     <div className="min-h-screen bg-[#faf8f5] flex flex-col justify-between items-center px-4 py-8 sm:py-12 relative overflow-hidden select-none">
       {/* Decorative ambient gradient orbs */}
@@ -60,7 +128,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
           {/* 1. PRINCIPAL: Crear mi familia */}
           <button
             type="button"
-            onClick={onCreateFamily}
+            onClick={() => {
+              if (onCreateFamily) onCreateFamily();
+              setCurrentView('signup');
+            }}
             className="w-full py-3.5 px-6 rounded-2xl font-bold text-sm text-white bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-600 hover:to-rose-600 active:scale-[0.99] shadow-md shadow-rose-900/10 transition-all flex items-center justify-center gap-2.5 cursor-pointer"
           >
             <UserPlus className="w-4 h-4" />
@@ -70,7 +141,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
           {/* 2. SECUNDARIO: Iniciar sesión */}
           <button
             type="button"
-            onClick={onSignIn}
+            onClick={() => {
+              if (onSignIn) onSignIn();
+              setCurrentView('signin');
+            }}
             className="w-full py-3.5 px-6 rounded-2xl font-bold text-sm text-stone-800 bg-white hover:bg-stone-50 active:scale-[0.99] border border-stone-200/90 shadow-xs hover:border-stone-300 transition-all flex items-center justify-center gap-2.5 cursor-pointer"
           >
             <LogIn className="w-4 h-4 text-stone-600" />
@@ -81,7 +155,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
           <div className="pt-2">
             <button
               type="button"
-              onClick={onClaimInvite}
+              onClick={() => {
+                if (onClaimInvite) onClaimInvite();
+                setCurrentView('claim_invite');
+              }}
               className="text-xs sm:text-sm text-stone-500 hover:text-amber-700 font-medium py-2 px-3 rounded-xl hover:bg-amber-50/60 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
             >
               <Link2 className="w-3.5 h-3.5 text-stone-400" />

@@ -69,9 +69,11 @@ export const authService = {
     familyName?: string;
   }): Promise<AuthResponse<{ user: AuthUser; family: FamilyAccount }>> {
     if (!supabase) {
+      const existing = getLocalStoredUser();
+      const familyId = existing?.familyId || `fam_local_${Date.now()}`;
       const userProfile: AuthUser = {
-        id: `user_local_${Date.now()}`,
-        familyId: `fam_local_${Date.now()}`,
+        id: existing?.id || `user_local_${Date.now()}`,
+        familyId,
         email: params.email,
         name: params.name,
         role: 'FAMILY_ADULT',
@@ -82,7 +84,7 @@ export const authService = {
       };
 
       const family: FamilyAccount = {
-        id: userProfile.familyId,
+        id: familyId,
         name: params.familyName || 'Nuestra Familia',
         isBothCoAdminsActive: false,
         createdAt: new Date().toISOString(),
@@ -117,9 +119,18 @@ export const authService = {
       });
 
       if (authError || !authData.user) {
+        const raw = authError?.message || '';
+        let errorMsg = 'Error al crear la cuenta de usuario.';
+        if (raw.toLowerCase().includes('already registered') || raw.toLowerCase().includes('already been registered') || raw.toLowerCase().includes('user already exists')) {
+          errorMsg = 'Este correo electrónico ya está registrado. Por favor inicia sesión con tu contraseña.';
+        } else if (raw.toLowerCase().includes('password') && (raw.toLowerCase().includes('character') || raw.toLowerCase().includes('short') || raw.toLowerCase().includes('least'))) {
+          errorMsg = 'La contraseña debe contener al menos 6 caracteres.';
+        } else if (raw) {
+          errorMsg = raw;
+        }
         return {
           success: false,
-          error: authError?.message || 'Error al crear la cuenta de usuario.',
+          error: errorMsg,
         };
       }
 
@@ -216,9 +227,14 @@ export const authService = {
       });
 
       if (authError || !authData.user) {
+        const raw = authError?.message || '';
+        let friendly = 'El correo electrónico o la contraseña ingresada son incorrectos. Por favor, verifica tus datos e inténtalo de nuevo.';
+        if (raw.toLowerCase().includes('email not confirmed')) {
+          friendly = 'Tu correo electrónico aún no ha sido confirmado. Revisa tu bandeja de entrada o spam.';
+        }
         return {
           success: false,
-          error: authError?.message || 'Credenciales incorrectas.',
+          error: friendly,
         };
       }
 
@@ -302,8 +318,7 @@ export const authService = {
   async resetPassword(email: string): Promise<AuthResponse<void>> {
     if (!supabase) {
       return {
-        success: false,
-        error: 'Supabase no está configurado en las variables de entorno.',
+        success: true,
       };
     }
 
