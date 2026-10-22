@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { UserPlus, LogIn, Link2, Heart, Shield, Sparkles } from 'lucide-react';
 import { CreateFamilyView } from './CreateFamilyView';
 import { SignInView } from './SignInView';
@@ -29,13 +29,15 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   const [currentView, setCurrentView] = useState<AuthScreenView>(
     inviteToken ? 'claim_invite' : initialView
   );
+  const [prevInviteToken, setPrevInviteToken] = useState(inviteToken);
 
   // Sync if inviteToken arrives dynamically
-  useEffect(() => {
+  if (inviteToken !== prevInviteToken) {
+    setPrevInviteToken(inviteToken);
     if (inviteToken) {
       setCurrentView('claim_invite');
     }
-  }, [inviteToken]);
+  }
 
   // If a subview is requested, render the dedicated screen
   if (currentView === 'signup') {

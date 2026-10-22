@@ -37,6 +37,7 @@ export interface IDataService {
     ) => void
   ): () => void;
   disconnectRealtime?(): void;
+  flushOutbox?(): Promise<void>;
 }
 
 /**
@@ -66,6 +67,10 @@ export class LocalStorageDataService implements IDataService {
 
   public importJSON(jsonString: string): FullAppState | null {
     return storageService.importJSON(jsonString);
+  }
+
+  public async flushOutbox(): Promise<void> {
+    // No-op in local demo mode
   }
 
   /**

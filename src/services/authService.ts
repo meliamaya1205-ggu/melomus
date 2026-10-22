@@ -406,26 +406,9 @@ export const authService = {
    */
   async createCoAdminInvite(targetRelationship: PrimaryAdultRelationship): Promise<CoAdminInviteResult> {
     if (!supabase) {
-      const token = `tok_local_${Date.now()}`;
-      const expiresAt = new Date(Date.now() + 48 * 3600 * 1000).toISOString();
-      const inviteUrl = `${window.location.origin}/?vincular=${token}`;
-      try {
-        localStorage.setItem(`melomus_invite_${token}`, JSON.stringify({
-          valid: true,
-          familyId: 'fam_local',
-          familyName: 'Nuestra Familia',
-          inviterName: targetRelationship === 'papa' ? 'Mamá' : 'Papá',
-          targetRelationship,
-          expiresAt,
-        }));
-      } catch (e) {
-        console.warn('Could not save local invite:', e);
-      }
       return {
-        success: true,
-        token,
-        inviteUrl,
-        expiresAt,
+        success: false,
+        message: 'No pudimos crear la invitación. La conexión con Supabase no está configurada o disponible. Inténtalo nuevamente.',
       };
     }
 
@@ -437,11 +420,11 @@ export const authService = {
       if (error || !data || !data.success) {
         return {
           success: false,
-          message: error?.message || data?.message || 'Error al generar enlace de vinculación.',
+          message: data?.message || error?.message || 'No pudimos crear la invitación. Inténtalo nuevamente.',
         };
       }
 
-      const inviteUrl = `${window.location.origin}/?vincular=${data.token}`;
+      const inviteUrl = `${window.location.origin}/invite?token=${data.token}`;
 
       return {
         success: true,
@@ -452,7 +435,7 @@ export const authService = {
     } catch (err: unknown) {
       return {
         success: false,
-        message: err instanceof Error ? err.message : 'Error inesperado.',
+        message: err instanceof Error ? err.message : 'No pudimos crear la invitación. Inténtalo nuevamente.',
       };
     }
   },
@@ -462,18 +445,9 @@ export const authService = {
    */
   async getInviteDetails(token: string): Promise<InviteDetailsResult> {
     if (!supabase) {
-      try {
-        const raw = localStorage.getItem(`melomus_invite_${token}`);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          return parsed;
-        }
-      } catch {
-        // fall through
-      }
       return {
         valid: false,
-        message: 'El enlace de vinculación no es válido o ha expirado.',
+        message: 'La conexión con el servidor familiar no está disponible. No es posible validar la invitación sin conexión.',
       };
     }
 
@@ -507,7 +481,7 @@ export const authService = {
     } catch (err: unknown) {
       return {
         valid: false,
-        message: err instanceof Error ? err.message : 'Error inesperado.',
+        message: err instanceof Error ? err.message : 'Error inesperado al consultar la invitación.',
       };
     }
   },
@@ -517,17 +491,9 @@ export const authService = {
    */
   async claimCoAdminInvite(token: string, name: string): Promise<AuthResponse<{ familyId: string; relationship: string }>> {
     if (!supabase) {
-      try {
-        localStorage.removeItem(`melomus_invite_${token}`);
-      } catch {
-        // ignore
-      }
       return {
-        success: true,
-        data: {
-          familyId: 'fam_local',
-          relationship: 'papa',
-        },
+        success: false,
+        error: 'No es posible vincularse sin conexión activa a Supabase.',
       };
     }
 
@@ -540,7 +506,7 @@ export const authService = {
       if (error || !data || !data.success) {
         return {
           success: false,
-          error: error?.message || data?.message || 'No fue posible vincular al adulto principal.',
+          error: data?.message || error?.message || 'No fue posible vincular al adulto principal.',
         };
       }
 
@@ -555,6 +521,93 @@ export const authService = {
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Error inesperado al reclamar invitación.',
+      };
+    }
+  },
+
+  /**
+   * Register a new user account specifically from a co-admin invitation,
+   * directly associating them to the inviter's family without creating an orphaned family.
+   */
+  async signUpForInvite(params: {
+    email: string;
+    password: string;
+    name: string;
+    relationship: PrimaryAdultRelationship;
+    inviteToken: string;
+  }): Promise<AuthResponse<{ user: AuthUser; familyId: string; relationship: string }>> {
+    if (!supabase) {
+      return {
+        success: false,
+        error: 'La conexión con Supabase no está disponible para registrar la cuenta vinculada.',
+      };
+    }
+
+    try {
+      // 1. Create user in Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: params.email,
+        password: params.password,
+        options: {
+          data: {
+            name: params.name,
+            relationship: params.relationship,
+          },
+        },
+      });
+
+      if (authError || !authData.user) {
+        const raw = authError?.message || '';
+        let errorMsg = 'Error al crear la cuenta.';
+        if (raw.toLowerCase().includes('already registered') || raw.toLowerCase().includes('already been registered') || raw.toLowerCase().includes('user already exists')) {
+          errorMsg = 'Este correo ya está registrado. Inicia sesión para vincularte a la familia.';
+        } else if (raw.toLowerCase().includes('password') && (raw.toLowerCase().includes('character') || raw.toLowerCase().includes('short'))) {
+          errorMsg = 'La contraseña debe contener al menos 6 caracteres.';
+        } else if (raw) {
+          errorMsg = raw;
+        }
+        return { success: false, error: errorMsg };
+      }
+
+      // 2. Claim co-admin link to associate directly to the target family
+      const { data: claimData, error: claimError } = await supabase.rpc('claim_coadmin_link', {
+        p_token: params.inviteToken,
+        p_name: params.name,
+      });
+
+      if (claimError || !claimData || !claimData.success) {
+        return {
+          success: false,
+          error: claimData?.message || claimError?.message || 'Error al vincular con la familia.',
+        };
+      }
+
+      const userProfile: AuthUser = {
+        id: authData.user.id,
+        familyId: claimData.family_id,
+        email: params.email,
+        name: params.name,
+        role: 'FAMILY_ADULT',
+        relationship: params.relationship,
+        memberId: params.relationship,
+        avatarColor: params.relationship === 'papa' ? '#3b82f6' : '#ec4899',
+        avatarEmoji: params.relationship === 'papa' ? '🌿' : '🌸',
+      };
+
+      setLocalStoredUser(userProfile);
+
+      return {
+        success: true,
+        data: {
+          user: userProfile,
+          familyId: claimData.family_id,
+          relationship: claimData.relationship,
+        },
+      };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Error inesperado durante el registro.',
       };
     }
   },

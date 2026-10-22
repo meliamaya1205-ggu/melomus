@@ -9,6 +9,8 @@ import {
   Medication,
   MedicationStatus,
   DoseStatus,
+  VaccineRecord,
+  PediatricQuery,
 } from '../types/health';
 import { formatFriendlyDate, getTodayString, getCurrentTimeString } from '../services/dateUtils';
 import {
@@ -48,9 +50,13 @@ export const HealthView: React.FC = () => {
     logDose,
     pediatricQueries,
     addPediatricQuery,
+    updatePediatricQuery,
     togglePediatricQuery,
     deletePediatricQuery,
     vaccineRecords,
+    addVaccineRecord,
+    updateVaccineRecord,
+    deleteVaccineRecord,
     toggleVaccineStatus,
     members,
     config,
@@ -99,10 +105,23 @@ export const HealthView: React.FC = () => {
 
   // --- Modal: Pediatric Query ("Confirmar con Pediatra") ---
   const [isQueryModalOpen, setIsQueryModalOpen] = useState(false);
+  const [editingQueryId, setEditingQueryId] = useState<string | null>(null);
   const [queryMemberId, setQueryMemberId] = useState(members[4]?.id || 'axel');
   const [queryMedName, setQueryMedName] = useState('');
   const [queryQuestion, setQueryQuestion] = useState('');
   const [queryNotes, setQueryNotes] = useState('');
+  const [queryStatus, setQueryStatus] = useState<'pending' | 'resolved'>('pending');
+
+  // --- Modal: Vaccine ---
+  const [isVacModalOpen, setIsVacModalOpen] = useState(false);
+  const [editingVacId, setEditingVacId] = useState<string | null>(null);
+  const [vacMemberId, setVacMemberId] = useState(members[2]?.id || members[0]?.id || 'annie');
+  const [vacName, setVacName] = useState('');
+  const [vacRecommendedAge, setVacRecommendedAge] = useState('');
+  const [vacDueDate, setVacDueDate] = useState(todayStr);
+  const [vacAppliedDate, setVacAppliedDate] = useState('');
+  const [vacNotes, setVacNotes] = useState('');
+  const [vacStatus, setVacStatus] = useState<'upcoming' | 'applied'>('upcoming');
 
   // ----------------------------------------------------
   // Handlers: Appointment
@@ -283,23 +302,109 @@ export const HealthView: React.FC = () => {
   // ----------------------------------------------------
   // Handlers: Pediatric Query
   // ----------------------------------------------------
+  const openNewQueryModal = () => {
+    setEditingQueryId(null);
+    setQueryMemberId(members[4]?.id || members[0]?.id || 'axel');
+    setQueryMedName('');
+    setQueryQuestion('');
+    setQueryNotes('');
+    setQueryStatus('pending');
+    setIsQueryModalOpen(true);
+  };
+
+  const openEditQueryModal = (query: PediatricQuery) => {
+    setEditingQueryId(query.id);
+    setQueryMemberId(query.memberId);
+    setQueryMedName(query.medicationName || '');
+    setQueryQuestion(query.question);
+    setQueryNotes(query.notes || '');
+    setQueryStatus(query.status);
+    setIsQueryModalOpen(true);
+  };
+
   const handleSaveQuery = (e: React.FormEvent) => {
     e.preventDefault();
     if (!queryQuestion.trim()) return;
 
-    addPediatricQuery({
-      memberId: queryMemberId,
-      medicationName: queryMedName.trim() || undefined,
-      question: queryQuestion.trim(),
-      notes: queryNotes.trim() || undefined,
-      reviewDate: todayStr,
-      status: 'pending',
-    });
+    if (editingQueryId) {
+      updatePediatricQuery(editingQueryId, {
+        memberId: queryMemberId,
+        medicationName: queryMedName.trim() || undefined,
+        question: queryQuestion.trim(),
+        notes: queryNotes.trim() || undefined,
+        status: queryStatus,
+      });
+    } else {
+      addPediatricQuery({
+        memberId: queryMemberId,
+        medicationName: queryMedName.trim() || undefined,
+        question: queryQuestion.trim(),
+        notes: queryNotes.trim() || undefined,
+        reviewDate: todayStr,
+        status: 'pending',
+      });
+    }
 
+    setEditingQueryId(null);
     setQueryQuestion('');
     setQueryNotes('');
     setQueryMedName('');
     setIsQueryModalOpen(false);
+  };
+
+  // ----------------------------------------------------
+  // Handlers: Vaccines & Health Records
+  // ----------------------------------------------------
+  const openNewVacModal = () => {
+    setEditingVacId(null);
+    setVacMemberId(members[2]?.id || members[0]?.id || 'annie');
+    setVacName('');
+    setVacRecommendedAge('');
+    setVacDueDate(todayStr);
+    setVacAppliedDate('');
+    setVacNotes('');
+    setVacStatus('upcoming');
+    setIsVacModalOpen(true);
+  };
+
+  const openEditVacModal = (vac: VaccineRecord) => {
+    setEditingVacId(vac.id);
+    setVacMemberId(vac.memberId);
+    setVacName(vac.vaccineName);
+    setVacRecommendedAge(vac.recommendedAge);
+    setVacDueDate(vac.dueDate);
+    setVacAppliedDate(vac.appliedDate || '');
+    setVacNotes(vac.notes || '');
+    setVacStatus(vac.status === 'applied' ? 'applied' : 'upcoming');
+    setIsVacModalOpen(true);
+  };
+
+  const handleSaveVac = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vacName.trim()) return;
+
+    if (editingVacId) {
+      updateVaccineRecord(editingVacId, {
+        memberId: vacMemberId,
+        vaccineName: vacName.trim(),
+        recommendedAge: vacRecommendedAge.trim() || 'A la fecha',
+        dueDate: vacDueDate,
+        appliedDate: vacStatus === 'applied' ? (vacAppliedDate || todayStr) : undefined,
+        notes: vacNotes.trim() || undefined,
+        status: vacStatus,
+      });
+    } else {
+      addVaccineRecord({
+        memberId: vacMemberId,
+        vaccineName: vacName.trim(),
+        recommendedAge: vacRecommendedAge.trim() || 'A la fecha',
+        dueDate: vacDueDate,
+        appliedDate: vacStatus === 'applied' ? (vacAppliedDate || todayStr) : undefined,
+        notes: vacNotes.trim() || undefined,
+        status: vacStatus,
+      });
+    }
+    setIsVacModalOpen(false);
   };
 
   // ----------------------------------------------------
@@ -832,7 +937,7 @@ export const HealthView: React.FC = () => {
               </div>
 
               <button
-                onClick={() => setIsQueryModalOpen(true)}
+                onClick={openNewQueryModal}
                 className="flex items-center gap-1 px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -894,13 +999,22 @@ export const HealthView: React.FC = () => {
                         </div>
                       </div>
 
-                      <button
-                        onClick={() => deletePediatricQuery(q.id)}
-                        className="p-1 text-stone-300 hover:text-rose-600 transition-colors cursor-pointer"
-                        title="Eliminar pregunta"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          onClick={() => openEditQueryModal(q)}
+                          className="p-1 text-stone-400 hover:text-stone-700 rounded-lg hover:bg-white transition-colors cursor-pointer"
+                          title="Editar pregunta"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => deletePediatricQuery(q.id)}
+                          className="p-1 text-stone-300 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                          title="Eliminar pregunta"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -1047,6 +1161,14 @@ export const HealthView: React.FC = () => {
                   Controla las dosis obligatorias y controles pediátricos por edad
                 </p>
               </div>
+
+              <button
+                onClick={openNewVacModal}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Nueva Vacuna / Control</span>
+              </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
@@ -1087,16 +1209,38 @@ export const HealthView: React.FC = () => {
                         </div>
                       </div>
 
-                      <button
-                        onClick={() => toggleVaccineStatus(vac.id)}
-                        className={`px-3 py-1 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-                          isApplied
-                            ? 'bg-emerald-100 text-emerald-900 hover:bg-emerald-200'
-                            : 'bg-amber-500 hover:bg-amber-600 text-white'
-                        }`}
-                      >
-                        {isApplied ? 'Al Día ✓' : 'Marcar Aplicada'}
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => toggleVaccineStatus(vac.id)}
+                          className={`px-3 py-1 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                            isApplied
+                              ? 'bg-emerald-100 text-emerald-900 hover:bg-emerald-200'
+                              : 'bg-amber-500 hover:bg-amber-600 text-white'
+                          }`}
+                        >
+                          {isApplied ? 'Al Día ✓' : 'Marcar Aplicada'}
+                        </button>
+
+                        <button
+                          onClick={() => openEditVacModal(vac)}
+                          className="p-1.5 text-stone-400 hover:text-sky-600 rounded-lg hover:bg-sky-50 transition-colors cursor-pointer"
+                          title="Editar registro"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`¿Eliminar registro de vacuna "${vac.vaccineName}"?`)) {
+                              deleteVaccineRecord(vac.id);
+                            }
+                          }}
+                          className="p-1.5 text-stone-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                          title="Eliminar registro"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -1415,8 +1559,12 @@ export const HealthView: React.FC = () => {
       <Modal
         isOpen={isQueryModalOpen}
         onClose={() => setIsQueryModalOpen(false)}
-        title="Nueva Pregunta para el Pediatra"
-        subtitle="Anota dudas para resolver en el próximo control"
+        title={editingQueryId ? 'Editar Pregunta para el Pediatra' : 'Nueva Pregunta para el Pediatra'}
+        subtitle={
+          editingQueryId
+            ? 'Modifica o actualiza la duda para el control médico'
+            : 'Anota dudas para resolver en el próximo control'
+        }
       >
         <form onSubmit={handleSaveQuery} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
@@ -1477,6 +1625,22 @@ export const HealthView: React.FC = () => {
             />
           </div>
 
+          {editingQueryId && (
+            <div>
+              <label className="block text-xs font-semibold text-stone-700 mb-1">
+                Estado de la consulta
+              </label>
+              <select
+                value={queryStatus}
+                onChange={(e) => setQueryStatus(e.target.value as 'pending' | 'resolved')}
+                className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold"
+              >
+                <option value="pending">⏳ Pendiente de consultar</option>
+                <option value="resolved">✅ Resuelta / Respondida por el pediatra</option>
+              </select>
+            </div>
+          )}
+
           <div className="pt-3 flex justify-end gap-2 border-t border-stone-100">
             <button
               type="button"
@@ -1489,7 +1653,7 @@ export const HealthView: React.FC = () => {
               type="submit"
               className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
             >
-              Anotar Pregunta
+              {editingQueryId ? 'Guardar Cambios' : 'Anotar Pregunta'}
             </button>
           </div>
         </form>
@@ -1613,6 +1777,123 @@ export const HealthView: React.FC = () => {
               className="px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
             >
               {editingAppId ? 'Guardar Cambios' : 'Agendar Cita'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ==================================================== */}
+      {/* MODAL: REGISTRAR / EDITAR VACUNA                     */}
+      {/* ==================================================== */}
+      <Modal
+        isOpen={isVacModalOpen}
+        onClose={() => setIsVacModalOpen(false)}
+        title={editingVacId ? 'Editar Vacuna / Control' : 'Registrar Vacuna / Control'}
+        subtitle="Controla el calendario de inmunización y chequeos pediátricos"
+      >
+        <form onSubmit={handleSaveVac} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-stone-700 mb-1">Integrante</label>
+              <select
+                value={vacMemberId}
+                onChange={(e) => setVacMemberId(e.target.value)}
+                className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs"
+              >
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} ({m.role === 'adult' ? 'Adulto' : `${m.age ?? 0} años`})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-stone-700 mb-1">Edad o Etapa Recomendada</label>
+              <input
+                type="text"
+                placeholder="Ej: Recién nacido, 2 meses, 12 meses..."
+                value={vacRecommendedAge}
+                onChange={(e) => setVacRecommendedAge(e.target.value)}
+                className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Nombre de la Vacuna o Control</label>
+            <input
+              type="text"
+              required
+              autoFocus
+              placeholder="Ej: Hexavalente (1ra dosis), Tresvírica, Neumocócica..."
+              value={vacName}
+              onChange={(e) => setVacName(e.target.value)}
+              className="w-full px-3.5 py-2 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:bg-white"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-stone-700 mb-1">Fecha Prevista / Límite</label>
+              <input
+                type="date"
+                required
+                value={vacDueDate}
+                onChange={(e) => setVacDueDate(e.target.value)}
+                className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-stone-700 mb-1">Estado de Aplicación</label>
+              <select
+                value={vacStatus}
+                onChange={(e) => setVacStatus(e.target.value as 'upcoming' | 'applied')}
+                className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs"
+              >
+                <option value="upcoming">Pendiente / Próxima</option>
+                <option value="applied">Aplicada / Al Día</option>
+              </select>
+            </div>
+          </div>
+
+          {vacStatus === 'applied' && (
+            <div>
+              <label className="block text-xs font-semibold text-stone-700 mb-1">Fecha Real de Aplicación</label>
+              <input
+                type="date"
+                value={vacAppliedDate || todayStr}
+                onChange={(e) => setVacAppliedDate(e.target.value)}
+                className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs"
+              />
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Notas / Lote / Centro de Salud</label>
+            <textarea
+              rows={2}
+              placeholder="Ej: CESFAM, vacunatorio privado, número de lote..."
+              value={vacNotes}
+              onChange={(e) => setVacNotes(e.target.value)}
+              className="w-full px-3.5 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs"
+            />
+          </div>
+
+          <div className="pt-3 flex justify-end gap-2 border-t border-stone-100">
+            <button
+              type="button"
+              onClick={() => setIsVacModalOpen(false)}
+              className="px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-100 rounded-xl transition-colors cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+            >
+              {editingVacId ? 'Guardar Cambios' : 'Registrar Vacuna'}
             </button>
           </div>
         </form>

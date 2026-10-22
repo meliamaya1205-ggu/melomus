@@ -25,6 +25,7 @@ import {
   Check,
   Clock,
   Trash2,
+  Edit2,
   Users,
   HeartPulse,
   Trophy,
@@ -54,6 +55,8 @@ export const CoupleView: React.FC = () => {
     toggleHabitForToday,
     coupleCheckIns,
     addCoupleCheckIn,
+    updateCoupleCheckIn,
+    deleteCoupleCheckIn,
     coupleConversations,
     addCoupleConversation,
     updateCoupleConversation,
@@ -63,19 +66,26 @@ export const CoupleView: React.FC = () => {
     updateCoupleDate,
     deleteCoupleDate,
     coupleGestures,
+    addCoupleGesture,
+    updateCoupleGesture,
+    deleteCoupleGesture,
     recordCoupleGesture,
     coupleAgreements,
     addCoupleAgreement,
+    updateCoupleAgreement,
     deleteCoupleAgreement,
     coupleSpiritualItems,
     addCoupleSpiritualItem,
+    updateCoupleSpiritualItem,
     toggleCoupleSpiritualItem,
     deleteCoupleSpiritualItem,
     cuquiTimeSessions,
     addCuquiTimeSession,
+    updateCuquiTimeSession,
     deleteCuquiTimeSession,
     coupleMemories,
     addCoupleMemory,
+    updateCoupleMemory,
     deleteCoupleMemory,
   } = useFamily();
 
@@ -101,6 +111,23 @@ export const CoupleView: React.FC = () => {
   const [spiritualModalOpen, setSpiritualModalOpen] = useState(false);
   const [cuquiModalOpen, setCuquiModalOpen] = useState(false);
   const [memoryModalOpen, setMemoryModalOpen] = useState(false);
+
+  // Editing state for modals
+  const [editingCheckInId, setEditingCheckInId] = useState<string | null>(null);
+  const [editingConvId, setEditingConvId] = useState<string | null>(null);
+  const [editingDateId, setEditingDateId] = useState<string | null>(null);
+  const [editingAgrId, setEditingAgrId] = useState<string | null>(null);
+  const [editingSpId, setEditingSpId] = useState<string | null>(null);
+  const [editingCuquiId, setEditingCuquiId] = useState<string | null>(null);
+  const [editingMemId, setEditingMemId] = useState<string | null>(null);
+
+  // Gesture form state
+  const [gstModalOpen, setGstModalOpen] = useState(false);
+  const [editingGstId, setEditingGstId] = useState<string | null>(null);
+  const [gstTitle, setGstTitle] = useState('');
+  const [gstDescription, setGstDescription] = useState('');
+  const [gstCategory, setGstCategory] = useState<'afecto' | 'palabras' | 'servicio' | 'tiempo' | 'sorpresa'>('afecto');
+  const [justRecordedGstId, setJustRecordedGstId] = useState<string | null>(null);
 
   // Check-in form
   const [checkMood, setCheckMood] = useState<CheckInMood>('bien');
@@ -231,35 +258,95 @@ export const CoupleView: React.FC = () => {
     },
   ];
 
-  // Handlers for saves
+  // Handlers for saves and edits
+  const openNewCheckIn = () => {
+    setEditingCheckInId(null);
+    setCheckMood('bien');
+    setCheckNeed('Un abrazo');
+    setCheckNote('');
+    setCheckPrivate(false);
+    setCheckInModalOpen(true);
+  };
+
+  const openEditCheckIn = (chk: any) => {
+    setEditingCheckInId(chk.id);
+    setCheckMood(chk.mood);
+    setCheckNeed(chk.need);
+    setCheckNote(chk.note || '');
+    setCheckPrivate(chk.isPrivate || false);
+    setCheckInModalOpen(true);
+  };
+
   const handleSaveCheckIn = (e: React.FormEvent) => {
     e.preventDefault();
-    addCoupleCheckIn({
-      memberId: activeAdultId,
-      memberName: activeAdult.name,
-      mood: checkMood,
-      need: checkNeed,
-      note: checkNote.trim() || undefined,
-      isPrivate: checkPrivate,
-      date: todayStr,
-    });
+    if (editingCheckInId) {
+      updateCoupleCheckIn(editingCheckInId, {
+        mood: checkMood,
+        need: checkNeed,
+        note: checkNote.trim() || undefined,
+        isPrivate: checkPrivate,
+      });
+    } else {
+      addCoupleCheckIn({
+        memberId: activeAdultId,
+        memberName: activeAdult.name,
+        mood: checkMood,
+        need: checkNeed,
+        note: checkNote.trim() || undefined,
+        isPrivate: checkPrivate,
+        date: todayStr,
+      });
+    }
     setCheckNote('');
     setCheckInModalOpen(false);
+  };
+
+  const openNewConv = () => {
+    setEditingConvId(null);
+    setConvTitle('');
+    setConvDesc('');
+    setConvCategory('tiempo_juntos');
+    setConvStatus('pending');
+    setConvNotes('');
+    setConvPrivate(false);
+    setConvModalOpen(true);
+  };
+
+  const openEditConv = (conv: any) => {
+    setEditingConvId(conv.id);
+    setConvTitle(conv.title);
+    setConvDesc(conv.description || '');
+    setConvCategory(conv.categoryKey || 'tiempo_juntos');
+    setConvStatus(conv.status || 'pending');
+    setConvNotes(conv.notes || '');
+    setConvPrivate(conv.isPrivate || false);
+    setConvModalOpen(true);
   };
 
   const handleSaveConversation = (e: React.FormEvent) => {
     e.preventDefault();
     if (!convTitle.trim()) return;
-    addCoupleConversation({
-      title: convTitle.trim(),
-      description: convDesc.trim() || undefined,
-      categoryKey: convCategory,
-      createdBy: activeAdultId,
-      date: todayStr,
-      status: convStatus,
-      notes: convNotes.trim() || undefined,
-      isPrivate: convPrivate,
-    });
+    if (editingConvId) {
+      updateCoupleConversation(editingConvId, {
+        title: convTitle.trim(),
+        description: convDesc.trim() || undefined,
+        categoryKey: convCategory,
+        status: convStatus,
+        notes: convNotes.trim() || undefined,
+        isPrivate: convPrivate,
+      });
+    } else {
+      addCoupleConversation({
+        title: convTitle.trim(),
+        description: convDesc.trim() || undefined,
+        categoryKey: convCategory,
+        createdBy: activeAdultId,
+        date: todayStr,
+        status: convStatus,
+        notes: convNotes.trim() || undefined,
+        isPrivate: convPrivate,
+      });
+    }
     setConvTitle('');
     setConvDesc('');
     setConvNotes('');
@@ -267,91 +354,288 @@ export const CoupleView: React.FC = () => {
     setConvModalOpen(false);
   };
 
+  const openNewDate = () => {
+    setEditingDateId(null);
+    setDateTitle('');
+    setDateDay(todayStr);
+    setDateTime('21:30');
+    setDateDuration(60);
+    setDateType('cena');
+    setDateNotes('');
+    setDateSyncCalendar(true);
+    setDateModalOpen(true);
+  };
+
+  const openEditDate = (d: any) => {
+    setEditingDateId(d.id);
+    setDateTitle(d.title);
+    setDateDay(d.date);
+    setDateTime(d.time || '21:30');
+    setDateDuration(d.durationMinutes || 60);
+    setDateType(d.typeKey || 'cena');
+    setDateNotes(d.notes || '');
+    setDateSyncCalendar(d.syncedToCalendar ?? true);
+    setDateModalOpen(true);
+  };
+
   const handleSaveDate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!dateTitle.trim()) return;
-    addCoupleDate({
-      title: dateTitle.trim(),
-      date: dateDay,
-      time: dateTime,
-      durationMinutes: dateDuration,
-      typeKey: dateType,
-      notes: dateNotes.trim() || undefined,
-      hasReminder: true,
-      status: 'planned',
-      syncedToCalendar: dateSyncCalendar,
-    });
+    if (editingDateId) {
+      updateCoupleDate(editingDateId, {
+        title: dateTitle.trim(),
+        date: dateDay,
+        time: dateTime,
+        durationMinutes: dateDuration,
+        typeKey: dateType,
+        notes: dateNotes.trim() || undefined,
+        syncedToCalendar: dateSyncCalendar,
+      });
+    } else {
+      addCoupleDate({
+        title: dateTitle.trim(),
+        date: dateDay,
+        time: dateTime,
+        durationMinutes: dateDuration,
+        typeKey: dateType,
+        notes: dateNotes.trim() || undefined,
+        hasReminder: true,
+        status: 'planned',
+        syncedToCalendar: dateSyncCalendar,
+      });
+    }
     setDateTitle('');
     setDateNotes('');
     setDateModalOpen(false);
   };
 
+  const openNewAgr = () => {
+    setEditingAgrId(null);
+    setAgrTitle('');
+    setAgrDesc('');
+    setAgrCategory('tiempo');
+    setAgrFreq('weekly');
+    setAgrNotes('');
+    setAgreementModalOpen(true);
+  };
+
+  const openEditAgr = (agr: any) => {
+    setEditingAgrId(agr.id);
+    setAgrTitle(agr.title);
+    setAgrDesc(agr.description || '');
+    setAgrCategory(agr.categoryKey || 'tiempo');
+    setAgrFreq(agr.frequency || 'weekly');
+    setAgrNotes(agr.notes || '');
+    setAgreementModalOpen(true);
+  };
+
   const handleSaveAgreement = (e: React.FormEvent) => {
     e.preventDefault();
     if (!agrTitle.trim()) return;
-    addCoupleAgreement({
-      title: agrTitle.trim(),
-      description: agrDesc.trim(),
-      categoryKey: agrCategory,
-      responsibleId: agrResp,
-      date: todayStr,
-      frequency: agrFreq,
-      status: 'active',
-      notes: agrNotes.trim() || undefined,
-    });
+    if (editingAgrId) {
+      updateCoupleAgreement(editingAgrId, {
+        title: agrTitle.trim(),
+        description: agrDesc.trim(),
+        categoryKey: agrCategory,
+        frequency: agrFreq,
+        notes: agrNotes.trim() || undefined,
+      });
+    } else {
+      addCoupleAgreement({
+        title: agrTitle.trim(),
+        description: agrDesc.trim(),
+        categoryKey: agrCategory,
+        responsibleId: agrResp,
+        date: todayStr,
+        frequency: agrFreq,
+        status: 'active',
+        notes: agrNotes.trim() || undefined,
+      });
+    }
     setAgrTitle('');
     setAgrDesc('');
     setAgrNotes('');
     setAgreementModalOpen(false);
   };
 
+  const openNewSp = () => {
+    setEditingSpId(null);
+    setSpType('prayer_request');
+    setSpTitle('');
+    setSpContent('');
+    setSpNotes('');
+    setSpiritualModalOpen(true);
+  };
+
+  const openEditSp = (sp: any) => {
+    setEditingSpId(sp.id);
+    setSpType(sp.type || 'prayer_request');
+    setSpTitle(sp.title);
+    setSpContent(sp.content || '');
+    setSpNotes(sp.notes || '');
+    setSpiritualModalOpen(true);
+  };
+
   const handleSaveSpiritual = (e: React.FormEvent) => {
     e.preventDefault();
     if (!spTitle.trim()) return;
-    addCoupleSpiritualItem({
-      type: spType,
-      title: spTitle.trim(),
-      content: spContent.trim(),
-      date: todayStr,
-      status: 'pending',
-      addedBy: activeAdultId,
-      notes: spNotes.trim() || undefined,
-    });
+    if (editingSpId) {
+      updateCoupleSpiritualItem(editingSpId, {
+        type: spType,
+        title: spTitle.trim(),
+        content: spContent.trim(),
+        notes: spNotes.trim() || undefined,
+      });
+    } else {
+      addCoupleSpiritualItem({
+        type: spType,
+        title: spTitle.trim(),
+        content: spContent.trim(),
+        date: todayStr,
+        status: 'pending',
+        addedBy: activeAdultId,
+        notes: spNotes.trim() || undefined,
+      });
+    }
     setSpTitle('');
     setSpContent('');
     setSpNotes('');
     setSpiritualModalOpen(false);
   };
 
+  const openNewCuqui = () => {
+    setEditingCuquiId(null);
+    setCuquiDate(todayStr);
+    setCuquiTime('22:30');
+    setCuquiDuration(60);
+    setCuquiNotes('');
+    setCuquiPreps(['velas', 'musica', 'sin_celulares']);
+    setCuquiModalOpen(true);
+  };
+
+  const openEditCuqui = (s: any) => {
+    setEditingCuquiId(s.id);
+    setCuquiDate(s.date);
+    setCuquiTime(s.time || '22:30');
+    setCuquiDuration(s.durationMinutes || 60);
+    setCuquiNotes(s.privateNotes || '');
+    setCuquiPreps(s.preparations || ['velas', 'musica', 'sin_celulares']);
+    setCuquiModalOpen(true);
+  };
+
   const handleSaveCuqui = (e: React.FormEvent) => {
     e.preventDefault();
-    addCuquiTimeSession({
-      date: cuquiDate,
-      time: cuquiTime,
-      durationMinutes: cuquiDuration,
-      privateNotes: cuquiNotes.trim() || undefined,
-      hasReminder: true,
-      status: 'planned',
-      hideDetails: true,
-      preparations: cuquiPreps,
-    });
+    if (editingCuquiId) {
+      updateCuquiTimeSession(editingCuquiId, {
+        date: cuquiDate,
+        time: cuquiTime,
+        durationMinutes: cuquiDuration,
+        privateNotes: cuquiNotes.trim() || undefined,
+        preparations: cuquiPreps,
+      });
+    } else {
+      addCuquiTimeSession({
+        date: cuquiDate,
+        time: cuquiTime,
+        durationMinutes: cuquiDuration,
+        privateNotes: cuquiNotes.trim() || undefined,
+        hasReminder: true,
+        status: 'planned',
+        hideDetails: true,
+        preparations: cuquiPreps,
+      });
+    }
     setCuquiNotes('');
     setCuquiModalOpen(false);
+  };
+
+  const openNewMem = () => {
+    setEditingMemId(null);
+    setMemTitle('');
+    setMemDesc('');
+    setMemDate(todayStr);
+    setMemCategory('first_date');
+    setMemoryModalOpen(true);
+  };
+
+  const openEditMem = (m: any) => {
+    setEditingMemId(m.id);
+    setMemTitle(m.title);
+    setMemDesc(m.description || '');
+    setMemDate(m.date);
+    setMemCategory(m.category || 'first_date');
+    setMemoryModalOpen(true);
   };
 
   const handleSaveMemory = (e: React.FormEvent) => {
     e.preventDefault();
     if (!memTitle.trim()) return;
-    addCoupleMemory({
-      title: memTitle.trim(),
-      description: memDesc.trim(),
-      date: memDate,
-      category: memCategory,
-      emoji: memEmoji,
-    });
+    if (editingMemId) {
+      updateCoupleMemory(editingMemId, {
+        title: memTitle.trim(),
+        description: memDesc.trim(),
+        date: memDate,
+        category: memCategory,
+        emoji: memEmoji,
+      });
+    } else {
+      addCoupleMemory({
+        title: memTitle.trim(),
+        description: memDesc.trim(),
+        date: memDate,
+        category: memCategory,
+        emoji: memEmoji,
+      });
+    }
     setMemTitle('');
     setMemDesc('');
     setMemoryModalOpen(false);
+  };
+
+  // --- Gestures Handlers ---
+  const handleRecordGesture = (gestureId: string) => {
+    recordCoupleGesture(gestureId, activeAdultId);
+    setJustRecordedGstId(gestureId);
+    setTimeout(() => {
+      setJustRecordedGstId(null);
+    }, 2500);
+  };
+
+  const openNewGst = () => {
+    setEditingGstId(null);
+    setGstTitle('');
+    setGstDescription('');
+    setGstCategory('afecto');
+    setGstModalOpen(true);
+  };
+
+  const openEditGst = (gst: any) => {
+    setEditingGstId(gst.id);
+    setGstTitle(gst.title);
+    setGstDescription(gst.description || '');
+    setGstCategory(gst.category || 'afecto');
+    setGstModalOpen(true);
+  };
+
+  const handleSaveGesture = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!gstTitle.trim()) return;
+    if (editingGstId) {
+      updateCoupleGesture(editingGstId, {
+        title: gstTitle.trim(),
+        description: gstDescription.trim(),
+        category: gstCategory,
+      });
+    } else {
+      addCoupleGesture({
+        title: gstTitle.trim(),
+        description: gstDescription.trim(),
+        category: gstCategory,
+      });
+    }
+    setGstTitle('');
+    setGstDescription('');
+    setGstModalOpen(false);
   };
 
   const moodEmojis: Record<CheckInMood, { emoji: string; label: string }> = {
@@ -437,7 +721,7 @@ export const CoupleView: React.FC = () => {
         {/* Quick Action button in header */}
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setCheckInModalOpen(true)}
+            onClick={openNewCheckIn}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
           >
             <Heart className="w-3.5 h-3.5 fill-white" />
@@ -806,8 +1090,8 @@ export const CoupleView: React.FC = () => {
               </p>
             </div>
             <button
-              onClick={() => setCheckInModalOpen(true)}
-              className="flex items-center gap-1 px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
+              onClick={openNewCheckIn}
+              className="flex items-center gap-1 px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors shadow-xs"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Nuevo Check-in</span>
@@ -845,6 +1129,32 @@ export const CoupleView: React.FC = () => {
                     {chk.note}
                   </p>
                 )}
+
+                <div className="pt-2 border-t border-stone-100 flex items-center justify-between text-xs">
+                  <span className="text-[10px] text-stone-400">
+                    {chk.memberId === activeAdultId ? 'Tu registro' : `De ${chk.memberName}`}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => openEditCheckIn(chk)}
+                      className="p-1.5 text-stone-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                      title="Editar check-in"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm('¿Eliminar este check-in?')) {
+                          deleteCoupleCheckIn(chk.id);
+                        }
+                      }}
+                      className="p-1.5 text-stone-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                      title="Eliminar check-in"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -864,8 +1174,8 @@ export const CoupleView: React.FC = () => {
               </p>
             </div>
             <button
-              onClick={() => setConvModalOpen(true)}
-              className="flex items-center gap-1 px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
+              onClick={openNewConv}
+              className="flex items-center gap-1 px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors shadow-xs"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Nuevo Tema</span>
@@ -928,8 +1238,16 @@ export const CoupleView: React.FC = () => {
                         <option value="resolved">Resuelto</option>
                       </select>
                       <button
+                        onClick={() => openEditConv(conv)}
+                        className="p-1.5 text-stone-400 hover:text-sky-600 rounded-lg hover:bg-sky-50 transition-colors cursor-pointer"
+                        title="Editar tema"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
                         onClick={() => deleteCoupleConversation(conv.id)}
-                        className="p-1 text-stone-300 hover:text-rose-600 rounded-lg cursor-pointer"
+                        className="p-1.5 text-stone-300 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                        title="Eliminar tema"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -955,8 +1273,8 @@ export const CoupleView: React.FC = () => {
               </p>
             </div>
             <button
-              onClick={() => setDateModalOpen(true)}
-              className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
+              onClick={openNewDate}
+              className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors shadow-xs"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Nueva Cita</span>
@@ -1021,12 +1339,22 @@ export const CoupleView: React.FC = () => {
                   >
                     {d.status === 'completed' ? 'Marcar como pendiente' : '✓ Marcar como realizada'}
                   </button>
-                  <button
-                    onClick={() => deleteCoupleDate(d.id)}
-                    className="p-1 text-stone-300 hover:text-rose-600 rounded-lg cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => openEditDate(d)}
+                      className="p-1.5 text-stone-400 hover:text-purple-600 rounded-lg hover:bg-purple-50 transition-colors cursor-pointer"
+                      title="Editar cita"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => deleteCoupleDate(d.id)}
+                      className="p-1.5 text-stone-300 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                      title="Eliminar cita"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -1046,6 +1374,13 @@ export const CoupleView: React.FC = () => {
                 Pequeños detalles para nutrir el amor diario. Son sugerencias inspiradoras, no obligaciones.
               </p>
             </div>
+            <button
+              onClick={openNewGst}
+              className="flex items-center gap-1 px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors shadow-xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Nuevo Gesto</span>
+            </button>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1055,20 +1390,61 @@ export const CoupleView: React.FC = () => {
                 className="bg-white rounded-3xl p-5 border border-stone-200/80 shadow-xs flex flex-col justify-between space-y-3"
               >
                 <div>
-                  <span className="text-xs font-bold text-stone-900 block">{gst.title}</span>
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-xs font-bold text-stone-900 block">{gst.title}</span>
+                    <span className="text-[10px] bg-rose-50 text-rose-800 font-semibold px-2 py-0.5 rounded-full capitalize">
+                      {gst.category}
+                    </span>
+                  </div>
                   <p className="text-[11px] text-stone-500 mt-1 leading-relaxed">{gst.description}</p>
+                  {gst.lastDoneBy && (
+                    <span className="text-[10px] text-stone-400 block mt-1">
+                      Último por: {gst.lastDoneBy === 'papa' ? 'Papá' : 'Mamá'} {gst.lastDoneDate ? `• ${formatFriendlyDate(gst.lastDoneDate)}` : ''}
+                    </span>
+                  )}
                 </div>
 
                 <div className="pt-2 border-t border-stone-100 flex items-center justify-between">
-                  <span className="text-[10px] text-stone-400">
+                  <span className="text-[10px] text-stone-400 font-medium">
                     Hecho {gst.completedCount} {gst.completedCount === 1 ? 'vez' : 'veces'}
                   </span>
-                  <button
-                    onClick={() => recordCoupleGesture(gst.id, activeAdultId)}
-                    className="px-3 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl border border-rose-200 transition-colors cursor-pointer"
-                  >
-                    Hice este gesto ❤️
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => handleRecordGesture(gst.id)}
+                      className={`px-3 py-1 text-xs font-bold rounded-xl border transition-all cursor-pointer flex items-center gap-1 ${
+                        justRecordedGstId === gst.id
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm scale-105'
+                          : 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
+                      }`}
+                    >
+                      {justRecordedGstId === gst.id ? (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>¡Registrado por {activeAdult?.name || 'ti'}! ❤️</span>
+                        </>
+                      ) : (
+                        <span>Hice este gesto ❤️</span>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => openEditGst(gst)}
+                      className="p-1.5 text-stone-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                      title="Editar gesto"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`¿Eliminar gesto "${gst.title}"?`)) {
+                          deleteCoupleGesture(gst.id);
+                        }
+                      }}
+                      className="p-1.5 text-stone-300 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                      title="Eliminar gesto"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -1139,8 +1515,8 @@ export const CoupleView: React.FC = () => {
               </p>
             </div>
             <button
-              onClick={() => setAgreementModalOpen(true)}
-              className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
+              onClick={openNewAgr}
+              className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors shadow-xs"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Nuevo Acuerdo</span>
@@ -1173,10 +1549,22 @@ export const CoupleView: React.FC = () => {
                   <p className="text-[11px] text-stone-500 italic">Nota: {agr.notes}</p>
                 )}
 
-                <div className="pt-2 border-t border-stone-100 flex items-center justify-end">
+                <div className="pt-2 border-t border-stone-100 flex items-center justify-end gap-1.5">
                   <button
-                    onClick={() => deleteCoupleAgreement(agr.id)}
-                    className="p-1 text-stone-300 hover:text-rose-600 rounded-lg cursor-pointer"
+                    onClick={() => openEditAgr(agr)}
+                    className="p-1.5 text-stone-400 hover:text-emerald-600 rounded-lg hover:bg-emerald-50 transition-colors cursor-pointer"
+                    title="Editar acuerdo"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`¿Eliminar acuerdo "${agr.title}"?`)) {
+                        deleteCoupleAgreement(agr.id);
+                      }
+                    }}
+                    className="p-1.5 text-stone-300 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                    title="Eliminar acuerdo"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -1200,8 +1588,8 @@ export const CoupleView: React.FC = () => {
               </p>
             </div>
             <button
-              onClick={() => setSpiritualModalOpen(true)}
-              className="flex items-center gap-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
+              onClick={openNewSp}
+              className="flex items-center gap-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors shadow-xs"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Nueva Petición / Versículo</span>
@@ -1246,12 +1634,26 @@ export const CoupleView: React.FC = () => {
                     >
                       {sp.status === 'fulfilled' ? '✓ Respondido / Cumplido' : 'Marcar como respondido'}
                     </button>
-                    <button
-                      onClick={() => deleteCoupleSpiritualItem(sp.id)}
-                      className="p-1 text-stone-300 hover:text-rose-600 rounded-lg cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => openEditSp(sp)}
+                        className="p-1.5 text-stone-400 hover:text-amber-600 rounded-lg hover:bg-amber-50 transition-colors cursor-pointer"
+                        title="Editar"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`¿Eliminar este registro espiritual?`)) {
+                            deleteCoupleSpiritualItem(sp.id);
+                          }
+                        }}
+                        className="p-1.5 text-stone-300 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                        title="Eliminar"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -1280,7 +1682,7 @@ export const CoupleView: React.FC = () => {
             </div>
 
             <button
-              onClick={() => setCuquiModalOpen(true)}
+              onClick={openNewCuqui}
               className="flex items-center gap-1.5 px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -1337,12 +1739,26 @@ export const CoupleView: React.FC = () => {
                   <span className="text-[10px] text-stone-400">
                     Notificación discreta: "❤️ Tiempo de pareja"
                   </span>
-                  <button
-                    onClick={() => deleteCuquiTimeSession(session.id)}
-                    className="p-1 text-stone-300 hover:text-rose-600 rounded-lg cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => openEditCuqui(session)}
+                      className="p-1.5 text-stone-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                      title="Editar momento"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm('¿Eliminar esta sesión de Cuqui Time?')) {
+                          deleteCuquiTimeSession(session.id);
+                        }
+                      }}
+                      className="p-1.5 text-stone-300 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                      title="Eliminar momento"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -1363,8 +1779,8 @@ export const CoupleView: React.FC = () => {
               </p>
             </div>
             <button
-              onClick={() => setMemoryModalOpen(true)}
-              className="flex items-center gap-1 px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
+              onClick={openNewMem}
+              className="flex items-center gap-1 px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors shadow-xs"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Nuevo Recuerdo</span>
@@ -1394,10 +1810,22 @@ export const CoupleView: React.FC = () => {
                     </p>
                   )}
 
-                  <div className="pt-2 flex justify-end">
+                  <div className="pt-2 flex justify-end gap-1.5">
                     <button
-                      onClick={() => deleteCoupleMemory(mem.id)}
-                      className="p-1 text-stone-300 hover:text-rose-600 rounded-lg cursor-pointer"
+                      onClick={() => openEditMem(mem)}
+                      className="p-1.5 text-stone-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                      title="Editar recuerdo"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`¿Eliminar recuerdo "${mem.title}"?`)) {
+                          deleteCoupleMemory(mem.id);
+                        }
+                      }}
+                      className="p-1.5 text-stone-300 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                      title="Eliminar recuerdo"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -1414,8 +1842,8 @@ export const CoupleView: React.FC = () => {
       <Modal
         isOpen={checkInModalOpen}
         onClose={() => setCheckInModalOpen(false)}
-        title="Check-in Diario de Pareja"
-        subtitle={`Comparte con ternura cómo estás hoy (${activeAdult.name})`}
+        title={editingCheckInId ? 'Editar Check-in Diario' : 'Check-in Diario de Pareja'}
+        subtitle={editingCheckInId ? 'Modifica tu estado o necesidad' : `Comparte con ternura cómo estás hoy (${activeAdult.name})`}
       >
         <form onSubmit={handleSaveCheckIn} className="space-y-4">
           <div>
@@ -1508,7 +1936,7 @@ export const CoupleView: React.FC = () => {
               type="submit"
               className="px-5 py-2 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
             >
-              Guardar Check-in
+              {editingCheckInId ? 'Guardar Cambios' : 'Guardar Check-in'}
             </button>
           </div>
         </form>
@@ -1518,7 +1946,7 @@ export const CoupleView: React.FC = () => {
       <Modal
         isOpen={convModalOpen}
         onClose={() => setConvModalOpen(false)}
-        title="Nuevo Tema para Conversar"
+        title={editingConvId ? 'Editar Tema para Conversar' : 'Nuevo Tema para Conversar'}
         subtitle="Guarda un asunto para abordarlo con calma y amor"
       >
         <form onSubmit={handleSaveConversation} className="space-y-4">
@@ -1616,7 +2044,7 @@ export const CoupleView: React.FC = () => {
               type="submit"
               className="px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
             >
-              Guardar Tema
+              {editingConvId ? 'Guardar Cambios' : 'Guardar Tema'}
             </button>
           </div>
         </form>
@@ -1626,7 +2054,7 @@ export const CoupleView: React.FC = () => {
       <Modal
         isOpen={dateModalOpen}
         onClose={() => setDateModalOpen(false)}
-        title="Planificar Momento Juntos"
+        title={editingDateId ? 'Editar Momento Juntos' : 'Planificar Momento Juntos'}
         subtitle="Un tiempo dedicado exclusivamente a la pareja"
       >
         <form onSubmit={handleSaveDate} className="space-y-4">
@@ -1727,7 +2155,7 @@ export const CoupleView: React.FC = () => {
               type="submit"
               className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
             >
-              Agendar Momento
+              {editingDateId ? 'Guardar Cambios' : 'Agendar Momento'}
             </button>
           </div>
         </form>
@@ -1737,7 +2165,7 @@ export const CoupleView: React.FC = () => {
       <Modal
         isOpen={agreementModalOpen}
         onClose={() => setAgreementModalOpen(false)}
-        title="Registrar Acuerdo de Pareja"
+        title={editingAgrId ? 'Editar Acuerdo de Pareja' : 'Registrar Acuerdo de Pareja'}
         subtitle="Un pacto amoroso para cuidar el equipo que forman"
       >
         <form onSubmit={handleSaveAgreement} className="space-y-4">
@@ -1810,7 +2238,7 @@ export const CoupleView: React.FC = () => {
               type="submit"
               className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
             >
-              Guardar Acuerdo
+              {editingAgrId ? 'Guardar Cambios' : 'Guardar Acuerdo'}
             </button>
           </div>
         </form>
@@ -1820,7 +2248,7 @@ export const CoupleView: React.FC = () => {
       <Modal
         isOpen={spiritualModalOpen}
         onClose={() => setSpiritualModalOpen(false)}
-        title="Vida Espiritual de la Pareja"
+        title={editingSpId ? 'Editar Vida Espiritual' : 'Vida Espiritual de la Pareja'}
         subtitle="Oraciones, gratitud y versículos que sostienen el hogar"
       >
         <form onSubmit={handleSaveSpiritual} className="space-y-4">
@@ -1876,7 +2304,7 @@ export const CoupleView: React.FC = () => {
               type="submit"
               className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
             >
-              Guardar
+              {editingSpId ? 'Guardar Cambios' : 'Guardar'}
             </button>
           </div>
         </form>
@@ -1886,7 +2314,7 @@ export const CoupleView: React.FC = () => {
       <Modal
         isOpen={cuquiModalOpen}
         onClose={() => setCuquiModalOpen(false)}
-        title="Planificar Cuqui Time 💕"
+        title={editingCuquiId ? 'Editar Cuqui Time 💕' : 'Planificar Cuqui Time 💕'}
         subtitle="Un momento de complicidad íntima consensuada entre adultos"
       >
         <form onSubmit={handleSaveCuqui} className="space-y-4">
@@ -1998,7 +2426,7 @@ export const CoupleView: React.FC = () => {
               type="submit"
               className="px-5 py-2 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
             >
-              Guardar Momento
+              {editingCuquiId ? 'Guardar Cambios' : 'Guardar Momento'}
             </button>
           </div>
         </form>
@@ -2008,7 +2436,7 @@ export const CoupleView: React.FC = () => {
       <Modal
         isOpen={memoryModalOpen}
         onClose={() => setMemoryModalOpen(false)}
-        title="Guardar Momento Especial"
+        title={editingMemId ? 'Editar Momento Especial' : 'Guardar Momento Especial'}
         subtitle="Un recuerdo significativo para la historia de la pareja"
       >
         <form onSubmit={handleSaveMemory} className="space-y-4">
@@ -2078,7 +2506,73 @@ export const CoupleView: React.FC = () => {
               type="submit"
               className="px-5 py-2 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
             >
-              Guardar Recuerdo
+              {editingMemId ? 'Guardar Cambios' : 'Guardar Recuerdo'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal Gesto de Cariño */}
+      <Modal
+        isOpen={gstModalOpen}
+        onClose={() => setGstModalOpen(false)}
+        title={editingGstId ? 'Editar Gesto de Cariño' : 'Nuevo Gesto de Cariño'}
+        subtitle="Un detalle tierno para inspirar el amor cotidiano"
+      >
+        <form onSubmit={handleSaveGesture} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Nombre del Gesto</label>
+            <input
+              type="text"
+              required
+              autoFocus
+              placeholder="Ej: Preparar su desayuno favorito, Masaje de hombros..."
+              value={gstTitle}
+              onChange={(e) => setGstTitle(e.target.value)}
+              className="w-full px-3.5 py-2 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:bg-white"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Categoría</label>
+            <select
+              value={gstCategory}
+              onChange={(e) => setGstCategory(e.target.value as any)}
+              className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs"
+            >
+              <option value="afecto">❤️ Afecto / Contacto Físico</option>
+              <option value="palabras">💬 Palabras de Afirmación</option>
+              <option value="servicio">🤝 Acto de Servicio</option>
+              <option value="tiempo">⏳ Tiempo de Calidad</option>
+              <option value="sorpresa">🎁 Detalle o Sorpresa</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Descripción o Idea</label>
+            <textarea
+              rows={3}
+              required
+              placeholder="¿En qué consiste este gesto y cómo hacerlo especial?"
+              value={gstDescription}
+              onChange={(e) => setGstDescription(e.target.value)}
+              className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs focus:bg-white"
+            />
+          </div>
+
+          <div className="pt-3 flex justify-end gap-2 border-t border-stone-100">
+            <button
+              type="button"
+              onClick={() => setGstModalOpen(false)}
+              className="px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-100 rounded-xl cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
+            >
+              {editingGstId ? 'Guardar Cambios' : 'Crear Gesto'}
             </button>
           </div>
         </form>

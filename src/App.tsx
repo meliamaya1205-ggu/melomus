@@ -25,6 +25,8 @@ import { RewardsView } from './views/RewardsView';
 import { SettingsView } from './views/SettingsView';
 import { CoupleView } from './views/CoupleView';
 import { KidsDashboardView } from './components/kids/KidsDashboardView';
+import { KidsAppView } from './views/KidsAppView';
+import { kidAuthService } from './services/kidAuthService';
 
 const MainContent: React.FC = () => {
   const {
@@ -130,13 +132,41 @@ const ThemedApp: React.FC = () => {
     activeMember,
     authenticatedUser,
     isAuthLoading,
-    authModalOpen,
-    setAuthModalOpen,
-    authModalMode,
     inviteToken,
-    openAuthModal,
     handleAuthSuccess,
   } = useFamily();
+
+  // Check if current device / URL should run in dedicated Kids mode
+  const [isKidsView, setIsKidsView] = React.useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const path = window.location.pathname;
+    const search = window.location.search;
+    const hasKidToken = search.includes('kid_token=') || (search.includes('token=') && path.includes('kids'));
+    const isKidsPath = path.startsWith('/kids');
+    const isLinkedKidDevice = kidAuthService.getLinkedDevice() !== null;
+    return (
+      isKidsPath ||
+      hasKidToken ||
+      (isLinkedKidDevice &&
+        !localStorage.getItem('melomus_active_profile_v1')?.includes('mama') &&
+        !localStorage.getItem('melomus_active_profile_v1')?.includes('papa'))
+    );
+  });
+
+  if (isKidsView) {
+    return (
+      <KidsAppView
+        onExitToAdult={() => {
+          setIsKidsView(false);
+          const url = new URL(window.location.href);
+          url.pathname = '/';
+          url.searchParams.delete('token');
+          url.searchParams.delete('kid_token');
+          window.history.pushState({}, '', url.toString());
+        }}
+      />
+    );
+  }
 
   // 1. Sleek splash screen while checking session
   if (isAuthLoading) {

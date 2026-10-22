@@ -11,6 +11,20 @@ interface ClaimInviteViewProps {
   onAuthSuccess: (user: AuthUser) => void;
 }
 
+function cleanTokenFromInput(input: string): string {
+  let clean = input.trim();
+  if (!clean) return '';
+  try {
+    if (clean.includes('?') || clean.includes('/')) {
+      const url = new URL(clean.startsWith('http') ? clean : `https://${clean}`);
+      clean = url.searchParams.get('vincular') || url.searchParams.get('token') || clean;
+    }
+  } catch {
+    // not a full url, keep clean
+  }
+  return clean;
+}
+
 export const ClaimInviteView: React.FC<ClaimInviteViewProps> = ({
   initialToken = null,
   onBackToWelcome,
@@ -20,7 +34,7 @@ export const ClaimInviteView: React.FC<ClaimInviteViewProps> = ({
   const [tokenInput, setTokenInput] = useState(initialToken || '');
   const [activeToken, setActiveToken] = useState<string | null>(initialToken);
   const [inviteDetails, setInviteDetails] = useState<InviteDetailsResult | null>(null);
-  const [checking, setChecking] = useState(false);
+  const [checking, setChecking] = useState(() => Boolean(initialToken));
 
   // Form fields for registration/sign-in
   const [name, setName] = useState('');
@@ -32,20 +46,6 @@ export const ClaimInviteView: React.FC<ClaimInviteViewProps> = ({
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
-  const cleanTokenFromInput = (input: string): string => {
-    let clean = input.trim();
-    if (!clean) return '';
-    try {
-      if (clean.includes('?') || clean.includes('/')) {
-        const url = new URL(clean.startsWith('http') ? clean : `https://${clean}`);
-        clean = url.searchParams.get('vincular') || url.searchParams.get('token') || clean;
-      }
-    } catch {
-      // not a full url, keep clean
-    }
-    return clean;
-  };
 
   const verifyToken = async (rawToken: string) => {
     const clean = cleanTokenFromInput(rawToken);
@@ -78,9 +78,38 @@ export const ClaimInviteView: React.FC<ClaimInviteViewProps> = ({
   };
 
   useEffect(() => {
-    if (initialToken) {
-      verifyToken(initialToken);
-    }
+    if (!initialToken) return;
+
+    let cancelled = false;
+    const clean = cleanTokenFromInput(initialToken);
+    if (!clean) return;
+
+    authService.getInviteDetails(clean)
+      .then((details) => {
+        if (cancelled) return;
+        setInviteDetails(details);
+        setActiveToken(clean);
+
+        if (details.valid && details.targetRelationship) {
+          setTargetRelationship(details.targetRelationship);
+          setName((prevName) => prevName || (details.targetRelationship === 'papa' ? 'Papá' : 'Mamá'));
+        } else {
+          setErrorMessage(details.message || 'El enlace de vinculación no es válido o ha expirado.');
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setErrorMessage('No fue posible consultar el enlace de vinculación.');
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setChecking(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [initialToken]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -113,52 +142,65 @@ export const ClaimInviteView: React.FC<ClaimInviteViewProps> = ({
         const signInRes = await authService.signIn(email.trim().toLowerCase(), password);
         if (signInRes.success && signInRes.data) {
           user = signInRes.data.user;
+          // Claim co-admin link to associate existing account with this family
+          const claimRes = await authService.claimCoAdminInvite(activeToken, cleanName);
+          if (!claimRes.success || !claimRes.data) {
+            setErrorMessage(claimRes.error || 'No fue posible vincular tu cuenta a la familia.');
+            setLoading(false);
+            return;
+          }
+          user = {
+            ...user,
+            familyId: claimRes.data.familyId,
+            relationship: claimRes.data.relationship as PrimaryAdultRelationship,
+            memberId: claimRes.data.relationship,
+          };
         } else {
-          // If sign in fails, create their account
-          const signUpRes = await authService.signUp({
+          // If sign in fails, create their account directly linked to the invited family
+          const signUpRes = await authService.signUpForInvite({
             email: email.trim().toLowerCase(),
             password,
             name: cleanName,
             relationship: targetRelationship,
-            familyName: inviteDetails?.familyName || 'Nuestra Familia',
+            inviteToken: activeToken,
           });
 
           if (signUpRes.success && signUpRes.data) {
             user = signUpRes.data.user;
           } else {
-            setErrorMessage(signUpRes.error || 'No fue posible autenticar la cuenta.');
+            setErrorMessage(signUpRes.error || 'No fue posible crear y vincular la cuenta.');
             setLoading(false);
             return;
           }
         }
-      }
-
-      // 2. Claim co-admin link with total parity
-      const claimRes = await authService.claimCoAdminInvite(activeToken, cleanName);
-      setLoading(false);
-
-      if (claimRes.success && claimRes.data) {
-        triggerConfetti();
-        setSuccessMessage('¡Vinculación familiar exitosa! Ahora eres co-administrador/a.');
-
-        // Clean URL params if present
-        if (typeof window !== 'undefined') {
-          window.history.replaceState({}, document.title, window.location.pathname);
+      } else {
+        // Already authenticated session: claim link
+        const claimRes = await authService.claimCoAdminInvite(activeToken, cleanName);
+        if (!claimRes.success || !claimRes.data) {
+          setErrorMessage(claimRes.error || 'No fue posible vincular tu cuenta a la familia.');
+          setLoading(false);
+          return;
         }
-
-        const updatedUser: AuthUser = {
+        user = {
           ...user,
           familyId: claimRes.data.familyId,
           relationship: claimRes.data.relationship as PrimaryAdultRelationship,
           memberId: claimRes.data.relationship,
         };
-
-        setTimeout(() => {
-          onAuthSuccess(updatedUser);
-        }, 800);
-      } else {
-        setErrorMessage(claimRes.error || 'El enlace de vinculación ha expirado o ya fue utilizado.');
       }
+
+      setLoading(false);
+      triggerConfetti();
+      setSuccessMessage('¡Vinculación familiar exitosa! Ahora eres co-administrador/a.');
+
+      // Clean URL params if present
+      if (typeof window !== 'undefined') {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+
+      setTimeout(() => {
+        if (user) onAuthSuccess(user);
+      }, 800);
     } catch (err: unknown) {
       setLoading(false);
       setErrorMessage(err instanceof Error ? err.message : 'Error inesperado durante la vinculación.');

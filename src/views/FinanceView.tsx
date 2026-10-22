@@ -24,6 +24,7 @@ import {
   CreditCard,
   Building,
   User,
+  Pencil,
 } from 'lucide-react';
 
 type FinanceTab =
@@ -42,20 +43,29 @@ export const FinanceView: React.FC = () => {
     activeProfileId,
     incomes,
     addIncome,
+    updateIncome,
     deleteIncome,
     expenses,
     addExpense,
+    updateExpense,
     deleteExpense,
     bills,
     addBill,
+    updateBill,
     toggleBillPaid,
     deleteBill,
     debts,
     addDebt,
+    updateDebt,
     updateDebtBalance,
+    deleteDebt,
     budgets,
+    updateBudget,
+    deleteBudget,
     goals,
     addGoal,
+    updateGoal,
+    deleteGoal,
     contributeToGoal,
     config,
     members,
@@ -72,12 +82,27 @@ export const FinanceView: React.FC = () => {
   const activeAdultId = activeProfileId === 'papa' ? 'papa' : 'mama';
   const activeAdult = members.find((m) => m.id === activeAdultId) || members[0];
 
-  // Modals
+  // Modals & Editing state
   const [incomeModalOpen, setIncomeModalOpen] = useState(false);
+  const [editingIncomeId, setEditingIncomeId] = useState<string | null>(null);
+
   const [expenseModalOpen, setExpenseModalOpen] = useState(false);
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+
   const [billModalOpen, setBillModalOpen] = useState(false);
+  const [editingBillId, setEditingBillId] = useState<string | null>(null);
+
   const [debtModalOpen, setDebtModalOpen] = useState(false);
+  const [editingDebtId, setEditingDebtId] = useState<string | null>(null);
+
   const [goalModalOpen, setGoalModalOpen] = useState(false);
+  const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
+
+  const [budgetModalOpen, setBudgetModalOpen] = useState(false);
+  const [editingBudgetCatKey, setEditingBudgetCatKey] = useState<string>('');
+  const [editingBudgetCatName, setEditingBudgetCatName] = useState<string>('');
+  const [budgetLimitInput, setBudgetLimitInput] = useState<string>('');
+
   const [contributeGoalId, setContributeGoalId] = useState<string | null>(null);
   const [contributeAmount, setContributeAmount] = useState('');
 
@@ -188,25 +213,79 @@ export const FinanceView: React.FC = () => {
   const totalDebtBalance = currentDebts.reduce((acc, d) => acc + d.pendingBalance, 0);
   const estimatedAvailable = totalIncome - totalExpense - pendingBillsTotal;
 
-  // Handlers for saves
+  // Handlers for Incomes (Create & Edit)
+  const openCreateIncome = () => {
+    setEditingIncomeId(null);
+    setIncSource('salary');
+    setIncDesc('');
+    setIncAmount('');
+    setIncDate(getTodayString());
+    setIncResp(activeAdultId);
+    setIncomeModalOpen(true);
+  };
+
+  const openEditIncome = (inc: (typeof incomes)[0]) => {
+    setEditingIncomeId(inc.id);
+    setIncSource(inc.sourceKey);
+    setIncDesc(inc.description);
+    setIncAmount(String(inc.amount));
+    setIncDate(inc.date);
+    setIncResp(inc.responsibleId);
+    setIncomeModalOpen(true);
+  };
+
   const handleSaveIncome = (e: React.FormEvent) => {
     e.preventDefault();
     const amountNum = parseFloat(incAmount);
     if (!incDesc.trim() || isNaN(amountNum) || amountNum <= 0) return;
 
-    addIncome({
-      sourceKey: incSource,
-      description: incDesc.trim(),
-      amount: amountNum,
-      date: incDate,
-      responsibleId: financeScope === 'personal' ? activeAdultId : incResp,
-      isRecurring: incRecurring,
-      scope: financeScope,
-    });
+    if (editingIncomeId) {
+      updateIncome(editingIncomeId, {
+        sourceKey: incSource,
+        description: incDesc.trim(),
+        amount: amountNum,
+        date: incDate,
+        responsibleId: financeScope === 'personal' ? activeAdultId : incResp,
+        isRecurring: incRecurring,
+        scope: financeScope,
+      });
+      setEditingIncomeId(null);
+    } else {
+      addIncome({
+        sourceKey: incSource,
+        description: incDesc.trim(),
+        amount: amountNum,
+        date: incDate,
+        responsibleId: financeScope === 'personal' ? activeAdultId : incResp,
+        isRecurring: incRecurring,
+        scope: financeScope,
+      });
+    }
 
     setIncDesc('');
     setIncAmount('');
     setIncomeModalOpen(false);
+  };
+
+  // Handlers for Expenses (Create & Edit)
+  const openCreateExpense = () => {
+    setEditingExpenseId(null);
+    setExpDesc('');
+    setExpAmount('');
+    setExpDate(getTodayString());
+    setExpCat('food');
+    setExpResp(activeAdultId);
+    setExpenseModalOpen(true);
+  };
+
+  const openEditExpense = (exp: (typeof expenses)[0]) => {
+    setEditingExpenseId(exp.id);
+    setExpDesc(exp.description);
+    setExpAmount(String(exp.amount));
+    setExpDate(exp.date);
+    setExpCat(exp.categoryKey);
+    setExpResp(exp.responsibleId);
+    setExpenseModalOpen(true);
   };
 
   const handleSaveExpense = (e: React.FormEvent) => {
@@ -214,20 +293,55 @@ export const FinanceView: React.FC = () => {
     const amountNum = parseFloat(expAmount);
     if (!expDesc.trim() || isNaN(amountNum) || amountNum <= 0) return;
 
-    addExpense({
-      description: expDesc.trim(),
-      amount: amountNum,
-      date: expDate,
-      categoryKey: expCat,
-      responsibleId: financeScope === 'personal' ? activeAdultId : expResp,
-      paymentMethod: expMethod,
-      isRecurring: expRecurring,
-      scope: financeScope,
-    });
+    if (editingExpenseId) {
+      updateExpense(editingExpenseId, {
+        description: expDesc.trim(),
+        amount: amountNum,
+        date: expDate,
+        categoryKey: expCat,
+        responsibleId: financeScope === 'personal' ? activeAdultId : expResp,
+        paymentMethod: expMethod,
+        isRecurring: expRecurring,
+        scope: financeScope,
+      });
+      setEditingExpenseId(null);
+    } else {
+      addExpense({
+        description: expDesc.trim(),
+        amount: amountNum,
+        date: expDate,
+        categoryKey: expCat,
+        responsibleId: financeScope === 'personal' ? activeAdultId : expResp,
+        paymentMethod: expMethod,
+        isRecurring: expRecurring,
+        scope: financeScope,
+      });
+    }
 
     setExpDesc('');
     setExpAmount('');
     setExpenseModalOpen(false);
+  };
+
+  // Handlers for Bills (Create & Edit)
+  const openCreateBill = () => {
+    setEditingBillId(null);
+    setBillName('');
+    setBillAmount('');
+    setBillDueDate(getTodayString());
+    setBillCat('services');
+    setBillResp(activeAdultId);
+    setBillModalOpen(true);
+  };
+
+  const openEditBill = (bill: (typeof bills)[0]) => {
+    setEditingBillId(bill.id);
+    setBillName(bill.name);
+    setBillAmount(String(bill.amount));
+    setBillDueDate(bill.dueDate);
+    setBillCat(bill.categoryKey);
+    setBillResp(bill.responsibleId);
+    setBillModalOpen(true);
   };
 
   const handleSaveBill = (e: React.FormEvent) => {
@@ -235,20 +349,58 @@ export const FinanceView: React.FC = () => {
     const amountNum = parseFloat(billAmount);
     if (!billName.trim() || isNaN(amountNum) || amountNum <= 0) return;
 
-    addBill({
-      name: billName.trim(),
-      amount: amountNum,
-      dueDate: billDueDate,
-      categoryKey: billCat,
-      responsibleId: financeScope === 'personal' ? activeAdultId : billResp,
-      recurrence: billRecurrence,
-      status: 'pending',
-      scope: financeScope,
-    });
+    if (editingBillId) {
+      updateBill(editingBillId, {
+        name: billName.trim(),
+        amount: amountNum,
+        dueDate: billDueDate,
+        categoryKey: billCat,
+        responsibleId: financeScope === 'personal' ? activeAdultId : billResp,
+        recurrence: billRecurrence,
+        scope: financeScope,
+      });
+      setEditingBillId(null);
+    } else {
+      addBill({
+        name: billName.trim(),
+        amount: amountNum,
+        dueDate: billDueDate,
+        categoryKey: billCat,
+        responsibleId: financeScope === 'personal' ? activeAdultId : billResp,
+        recurrence: billRecurrence,
+        status: 'pending',
+        scope: financeScope,
+      });
+    }
 
     setBillName('');
     setBillAmount('');
     setBillModalOpen(false);
+  };
+
+  // Handlers for Debts (Create & Edit)
+  const openCreateDebt = () => {
+    setEditingDebtId(null);
+    setDebtName('');
+    setDebtCreditor('');
+    setDebtOriginal('');
+    setDebtPending('');
+    setDebtInstallment('');
+    setDebtDay(5);
+    setDebtNotes('');
+    setDebtModalOpen(true);
+  };
+
+  const openEditDebt = (debt: (typeof debts)[0]) => {
+    setEditingDebtId(debt.id);
+    setDebtName(debt.name);
+    setDebtCreditor(debt.creditor);
+    setDebtOriginal(String(debt.originalAmount));
+    setDebtPending(String(debt.pendingBalance));
+    setDebtInstallment(String(debt.installmentAmount));
+    setDebtDay(debt.paymentDay);
+    setDebtNotes(debt.notes || '');
+    setDebtModalOpen(true);
   };
 
   const handleSaveDebt = (e: React.FormEvent) => {
@@ -258,18 +410,33 @@ export const FinanceView: React.FC = () => {
     const instNum = parseFloat(debtInstallment);
     if (!debtName.trim() || isNaN(pendNum)) return;
 
-    addDebt({
-      name: debtName.trim(),
-      creditor: debtCreditor.trim() || 'Acreedor',
-      originalAmount: isNaN(origNum) ? pendNum : origNum,
-      pendingBalance: pendNum,
-      installmentAmount: isNaN(instNum) ? 0 : instNum,
-      paymentDay: debtDay,
-      frequency: 'monthly',
-      responsibleId: financeScope === 'personal' ? activeAdultId : debtResp,
-      notes: debtNotes.trim() || undefined,
-      scope: financeScope,
-    });
+    if (editingDebtId) {
+      updateDebt(editingDebtId, {
+        name: debtName.trim(),
+        creditor: debtCreditor.trim() || 'Acreedor',
+        originalAmount: isNaN(origNum) ? pendNum : origNum,
+        pendingBalance: pendNum,
+        installmentAmount: isNaN(instNum) ? 0 : instNum,
+        paymentDay: debtDay,
+        responsibleId: financeScope === 'personal' ? activeAdultId : debtResp,
+        notes: debtNotes.trim() || undefined,
+        scope: financeScope,
+      });
+      setEditingDebtId(null);
+    } else {
+      addDebt({
+        name: debtName.trim(),
+        creditor: debtCreditor.trim() || 'Acreedor',
+        originalAmount: isNaN(origNum) ? pendNum : origNum,
+        pendingBalance: pendNum,
+        installmentAmount: isNaN(instNum) ? 0 : instNum,
+        paymentDay: debtDay,
+        frequency: 'monthly',
+        responsibleId: financeScope === 'personal' ? activeAdultId : debtResp,
+        notes: debtNotes.trim() || undefined,
+        scope: financeScope,
+      });
+    }
 
     setDebtName('');
     setDebtCreditor('');
@@ -280,27 +447,73 @@ export const FinanceView: React.FC = () => {
     setDebtModalOpen(false);
   };
 
+  // Handlers for Goals (Create & Edit)
+  const openCreateGoal = () => {
+    setEditingGoalId(null);
+    setGoalName('');
+    setGoalTarget('');
+    setGoalCurrent('0');
+    setGoalModalOpen(true);
+  };
+
+  const openEditGoal = (goal: (typeof goals)[0]) => {
+    setEditingGoalId(goal.id);
+    setGoalName(goal.name);
+    setGoalTarget(String(goal.targetAmount));
+    setGoalCurrent(String(goal.currentAmount));
+    setGoalModalOpen(true);
+  };
+
   const handleSaveGoal = (e: React.FormEvent) => {
     e.preventDefault();
     const targetNum = parseFloat(goalTarget);
     const currentNum = parseFloat(goalCurrent) || 0;
     if (!goalName.trim() || isNaN(targetNum) || targetNum <= 0) return;
 
-    addGoal({
-      name: goalName.trim(),
-      targetAmount: targetNum,
-      currentAmount: currentNum,
-      targetDate: goalDate || undefined,
-      category: goalCategory,
-      ownerId: financeScope === 'personal' ? activeAdultId : undefined,
-      responsibleId: financeScope === 'personal' ? activeAdultId : undefined,
-      scope: financeScope,
-    });
+    if (editingGoalId) {
+      updateGoal(editingGoalId, {
+        name: goalName.trim(),
+        targetAmount: targetNum,
+        currentAmount: currentNum,
+        targetDate: goalDate || undefined,
+        category: goalCategory,
+        scope: financeScope,
+      });
+      setEditingGoalId(null);
+    } else {
+      addGoal({
+        name: goalName.trim(),
+        targetAmount: targetNum,
+        currentAmount: currentNum,
+        targetDate: goalDate || undefined,
+        category: goalCategory,
+        ownerId: financeScope === 'personal' ? activeAdultId : undefined,
+        responsibleId: financeScope === 'personal' ? activeAdultId : undefined,
+        scope: financeScope,
+      });
+    }
 
     setGoalName('');
     setGoalTarget('');
     setGoalCurrent('0');
     setGoalModalOpen(false);
+  };
+
+  // Handlers for Budgets (Edit Limit)
+  const openEditBudget = (categoryKey: string, categoryName: string, currentLimit: number) => {
+    setEditingBudgetCatKey(categoryKey);
+    setEditingBudgetCatName(categoryName);
+    setBudgetLimitInput(currentLimit > 0 ? String(currentLimit) : '');
+    setBudgetModalOpen(true);
+  };
+
+  const handleSaveBudget = (e: React.FormEvent) => {
+    e.preventDefault();
+    const limitNum = parseFloat(budgetLimitInput);
+    if (!isNaN(limitNum) && limitNum >= 0 && editingBudgetCatKey) {
+      updateBudget(editingBudgetCatKey, limitNum);
+    }
+    setBudgetModalOpen(false);
   };
 
   const handleContribute = (e: React.FormEvent) => {
@@ -646,7 +859,7 @@ export const FinanceView: React.FC = () => {
               </p>
             </div>
             <button
-              onClick={() => setIncomeModalOpen(true)}
+              onClick={openCreateIncome}
               className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -681,14 +894,25 @@ export const FinanceView: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                       <span className="text-base font-black text-emerald-700">
                         {formatCurrency(inc.amount)}
                       </span>
                       <button
-                        onClick={() => deleteIncome(inc.id)}
-                        className="p-1 text-stone-300 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
-                        title="Eliminar"
+                        onClick={() => openEditIncome(inc)}
+                        className="p-1.5 text-stone-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                        title="Editar ingreso"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (window.confirm('¿Seguro que quieres eliminar este registro?')) {
+                            deleteIncome(inc.id);
+                          }
+                        }}
+                        className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                        title="Eliminar ingreso"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -714,7 +938,7 @@ export const FinanceView: React.FC = () => {
               </p>
             </div>
             <button
-              onClick={() => setExpenseModalOpen(true)}
+              onClick={openCreateExpense}
               className="flex items-center gap-1 px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -749,14 +973,25 @@ export const FinanceView: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                       <span className="text-base font-black text-stone-900">
                         {formatCurrency(exp.amount)}
                       </span>
                       <button
-                        onClick={() => deleteExpense(exp.id)}
-                        className="p-1 text-stone-300 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
-                        title="Eliminar"
+                        onClick={() => openEditExpense(exp)}
+                        className="p-1.5 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors cursor-pointer"
+                        title="Editar gasto"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (window.confirm('¿Seguro que quieres eliminar este registro?')) {
+                            deleteExpense(exp.id);
+                          }
+                        }}
+                        className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                        title="Eliminar gasto"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -782,7 +1017,7 @@ export const FinanceView: React.FC = () => {
               </p>
             </div>
             <button
-              onClick={() => setBillModalOpen(true)}
+              onClick={openCreateBill}
               className="flex items-center gap-1 px-3 py-1.5 bg-stone-900 text-white rounded-xl text-xs font-bold cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5 text-amber-400" />
@@ -844,8 +1079,20 @@ export const FinanceView: React.FC = () => {
                             {isPaid ? 'Reabrir' : 'Pagar'}
                           </button>
                           <button
-                            onClick={() => deleteBill(bill.id)}
-                            className="p-1 text-stone-400 hover:text-rose-600 rounded-lg cursor-pointer"
+                            onClick={() => openEditBill(bill)}
+                            className="p-1.5 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors cursor-pointer"
+                            title="Editar cuenta"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (window.confirm('¿Seguro que quieres eliminar este registro?')) {
+                                deleteBill(bill.id);
+                              }
+                            }}
+                            className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
+                            title="Eliminar cuenta"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -920,6 +1167,30 @@ export const FinanceView: React.FC = () => {
                       style={{ width: `${Math.min(100, item.percent)}%` }}
                     />
                   </div>
+
+                  <div className="pt-2 flex items-center justify-between border-t border-stone-100">
+                    <button
+                      onClick={() => openEditBudget(item.cat.technicalKey, item.cat.displayName, item.limit)}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 hover:text-emerald-800 cursor-pointer"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span>{item.limit > 0 ? 'Editar Presupuesto' : 'Definir Presupuesto'}</span>
+                    </button>
+                    {item.limit > 0 && (
+                      <button
+                        onClick={() => {
+                          if (window.confirm('¿Seguro que quieres eliminar el presupuesto de esta categoría?')) {
+                            deleteBudget(item.cat.technicalKey);
+                          }
+                        }}
+                        className="text-[11px] text-stone-400 hover:text-rose-600 cursor-pointer flex items-center gap-1 transition-colors"
+                        title="Eliminar límite de presupuesto"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Quitar límite</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -944,7 +1215,7 @@ export const FinanceView: React.FC = () => {
             </div>
 
             <button
-              onClick={() => setDebtModalOpen(true)}
+              onClick={openCreateDebt}
               className="flex items-center gap-1 px-3 py-1.5 bg-stone-900 text-white rounded-xl text-xs font-bold cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5 text-amber-400" />
@@ -1019,9 +1290,27 @@ export const FinanceView: React.FC = () => {
                       >
                         + Registrar Abono
                       </button>
-                      <span className="text-[10px] text-stone-400">
-                        Monto orig: {formatCurrency(debt.originalAmount)}
-                      </span>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => openEditDebt(debt)}
+                          className="p-1.5 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors cursor-pointer"
+                          title="Editar deuda"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (window.confirm('¿Seguro que quieres eliminar este registro?')) {
+                              deleteDebt(debt.id);
+                            }
+                          }}
+                          className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                          title="Eliminar deuda"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -1044,7 +1333,7 @@ export const FinanceView: React.FC = () => {
               </p>
             </div>
             <button
-              onClick={() => setGoalModalOpen(true)}
+              onClick={openCreateGoal}
               className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -1105,12 +1394,30 @@ export const FinanceView: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between">
+                    <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between gap-2">
                       <button
                         onClick={() => setContributeGoalId(goal.id)}
-                        className="w-full py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold transition-colors cursor-pointer text-center"
+                        className="flex-1 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold transition-colors cursor-pointer text-center"
                       >
-                        + Aportar Dinero
+                        + Aportar
+                      </button>
+                      <button
+                        onClick={() => openEditGoal(goal)}
+                        className="p-1.5 text-stone-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                        title="Editar meta"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (window.confirm('¿Seguro que quieres eliminar este registro?')) {
+                            deleteGoal(goal.id);
+                          }
+                        }}
+                        className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                        title="Eliminar meta"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
@@ -1177,7 +1484,7 @@ export const FinanceView: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                       <span
                         className={`text-sm font-black ${
                           isInc ? 'text-emerald-700' : 'text-stone-900'
@@ -1188,10 +1495,32 @@ export const FinanceView: React.FC = () => {
                       </span>
 
                       <button
-                        onClick={() =>
-                          isInc ? deleteIncome(tx.id) : deleteExpense(tx.id)
-                        }
-                        className="p-1 text-stone-300 hover:text-rose-600 transition-colors cursor-pointer"
+                        onClick={() => {
+                          if (isInc) {
+                            const original = currentIncomes.find((i) => i.id === tx.id);
+                            if (original) openEditIncome(original);
+                          } else {
+                            const original = currentExpenses.find((e) => e.id === tx.id);
+                            if (original) openEditExpense(original);
+                          }
+                        }}
+                        className="p-1.5 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors cursor-pointer"
+                        title="Editar movimiento"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          if (window.confirm('¿Seguro que quieres eliminar este registro?')) {
+                            if (isInc) {
+                              deleteIncome(tx.id);
+                            } else {
+                              deleteExpense(tx.id);
+                            }
+                          }
+                        }}
+                        className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer rounded-lg"
                         title="Eliminar movimiento"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1207,10 +1536,21 @@ export const FinanceView: React.FC = () => {
       {/* Modal Ingreso */}
       <Modal
         isOpen={incomeModalOpen}
-        onClose={() => setIncomeModalOpen(false)}
-        title={financeScope === 'family' ? 'Registrar Ingreso Familiar' : `Registrar Ingreso Personal (${activeAdult.name})`}
+        onClose={() => {
+          setIncomeModalOpen(false);
+          setEditingIncomeId(null);
+        }}
+        title={
+          editingIncomeId
+            ? 'Editar Ingreso'
+            : financeScope === 'family'
+            ? 'Registrar Ingreso Familiar'
+            : `Registrar Ingreso Personal (${activeAdult.name})`
+        }
         subtitle={
-          financeScope === 'family'
+          editingIncomeId
+            ? 'Modifica los valores del ingreso seleccionado'
+            : financeScope === 'family'
             ? 'Añade sueldos, trabajos independientes, Uber o ventas familiares'
             : `Se guardará en tu espacio personal exclusivo de ${activeAdult.name}`
         }
@@ -1291,7 +1631,10 @@ export const FinanceView: React.FC = () => {
           <div className="pt-3 flex justify-end gap-2 border-t border-stone-100">
             <button
               type="button"
-              onClick={() => setIncomeModalOpen(false)}
+              onClick={() => {
+                setIncomeModalOpen(false);
+                setEditingIncomeId(null);
+              }}
               className="px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-100 rounded-xl transition-colors cursor-pointer"
             >
               Cancelar
@@ -1300,7 +1643,7 @@ export const FinanceView: React.FC = () => {
               type="submit"
               className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
             >
-              Guardar Ingreso
+              {editingIncomeId ? 'Guardar Cambios' : 'Guardar Ingreso'}
             </button>
           </div>
         </form>
@@ -1309,10 +1652,21 @@ export const FinanceView: React.FC = () => {
       {/* Modal Gasto */}
       <Modal
         isOpen={expenseModalOpen}
-        onClose={() => setExpenseModalOpen(false)}
-        title={financeScope === 'family' ? 'Registrar Gasto Familiar' : `Registrar Gasto Personal (${activeAdult.name})`}
+        onClose={() => {
+          setExpenseModalOpen(false);
+          setEditingExpenseId(null);
+        }}
+        title={
+          editingExpenseId
+            ? 'Editar Gasto'
+            : financeScope === 'family'
+            ? 'Registrar Gasto Familiar'
+            : `Registrar Gasto Personal (${activeAdult.name})`
+        }
         subtitle={
-          financeScope === 'family'
+          editingExpenseId
+            ? 'Modifica los valores del gasto seleccionado'
+            : financeScope === 'family'
             ? 'Mantén el control diario de compras y pagos del hogar'
             : `Se registrará exclusivamente en el espacio personal de ${activeAdult.name}`
         }
@@ -1392,7 +1746,10 @@ export const FinanceView: React.FC = () => {
           <div className="pt-3 flex justify-end gap-2 border-t border-stone-100">
             <button
               type="button"
-              onClick={() => setExpenseModalOpen(false)}
+              onClick={() => {
+                setExpenseModalOpen(false);
+                setEditingExpenseId(null);
+              }}
               className="px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-100 rounded-xl transition-colors cursor-pointer"
             >
               Cancelar
@@ -1401,7 +1758,7 @@ export const FinanceView: React.FC = () => {
               type="submit"
               className="px-5 py-2 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
             >
-              Guardar Gasto
+              {editingExpenseId ? 'Guardar Cambios' : 'Guardar Gasto'}
             </button>
           </div>
         </form>
@@ -1410,10 +1767,21 @@ export const FinanceView: React.FC = () => {
       {/* Modal Cuenta / Pago */}
       <Modal
         isOpen={billModalOpen}
-        onClose={() => setBillModalOpen(false)}
-        title={financeScope === 'family' ? 'Nueva Cuenta por Pagar' : `Nuevo Pago Personal (${activeAdult.name})`}
+        onClose={() => {
+          setBillModalOpen(false);
+          setEditingBillId(null);
+        }}
+        title={
+          editingBillId
+            ? 'Editar Cuenta / Pago'
+            : financeScope === 'family'
+            ? 'Nueva Cuenta por Pagar'
+            : `Nuevo Pago Personal (${activeAdult.name})`
+        }
         subtitle={
-          financeScope === 'family'
+          editingBillId
+            ? 'Modifica los datos del pago programado'
+            : financeScope === 'family'
             ? 'Registra compromisos y fechas de vencimiento del hogar'
             : `Suscripciones o pagos personales de ${activeAdult.name}`
         }
@@ -1495,7 +1863,10 @@ export const FinanceView: React.FC = () => {
           <div className="pt-3 flex justify-end gap-2 border-t border-stone-100">
             <button
               type="button"
-              onClick={() => setBillModalOpen(false)}
+              onClick={() => {
+                setBillModalOpen(false);
+                setEditingBillId(null);
+              }}
               className="px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-100 rounded-xl transition-colors cursor-pointer"
             >
               Cancelar
@@ -1504,7 +1875,7 @@ export const FinanceView: React.FC = () => {
               type="submit"
               className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
             >
-              Guardar Pago
+              {editingBillId ? 'Guardar Cambios' : 'Guardar Pago'}
             </button>
           </div>
         </form>
@@ -1513,10 +1884,21 @@ export const FinanceView: React.FC = () => {
       {/* Modal Deuda */}
       <Modal
         isOpen={debtModalOpen}
-        onClose={() => setDebtModalOpen(false)}
-        title={financeScope === 'family' ? 'Registrar Deuda Familiar' : `Registrar Deuda Personal (${activeAdult.name})`}
+        onClose={() => {
+          setDebtModalOpen(false);
+          setEditingDebtId(null);
+        }}
+        title={
+          editingDebtId
+            ? 'Editar Deuda / Crédito'
+            : financeScope === 'family'
+            ? 'Registrar Deuda Familiar'
+            : `Registrar Deuda Personal (${activeAdult.name})`
+        }
         subtitle={
-          financeScope === 'family'
+          editingDebtId
+            ? 'Actualiza los montos, cuotas o acreedor'
+            : financeScope === 'family'
             ? 'Lleva el control de créditos o compromisos familiares pendientes'
             : `Compromiso personal exclusivo de ${activeAdult.name}`
         }
@@ -1583,10 +1965,24 @@ export const FinanceView: React.FC = () => {
             </div>
           </div>
 
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Notas o Detalles (Opcional)</label>
+            <input
+              type="text"
+              placeholder="Ej: Quedan 4 cuotas, tasa preferencial..."
+              value={debtNotes}
+              onChange={(e) => setDebtNotes(e.target.value)}
+              className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs"
+            />
+          </div>
+
           <div className="pt-3 flex justify-end gap-2 border-t border-stone-100">
             <button
               type="button"
-              onClick={() => setDebtModalOpen(false)}
+              onClick={() => {
+                setDebtModalOpen(false);
+                setEditingDebtId(null);
+              }}
               className="px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-100 rounded-xl transition-colors cursor-pointer"
             >
               Cancelar
@@ -1595,7 +1991,7 @@ export const FinanceView: React.FC = () => {
               type="submit"
               className="px-5 py-2 bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
             >
-              Guardar Deuda
+              {editingDebtId ? 'Guardar Cambios' : 'Guardar Deuda'}
             </button>
           </div>
         </form>
@@ -1604,10 +2000,21 @@ export const FinanceView: React.FC = () => {
       {/* Modal Meta de Ahorro */}
       <Modal
         isOpen={goalModalOpen}
-        onClose={() => setGoalModalOpen(false)}
-        title={financeScope === 'family' ? 'Crear Meta de Ahorro Familiar' : `Crear Meta Personal (${activeAdult.name})`}
+        onClose={() => {
+          setGoalModalOpen(false);
+          setEditingGoalId(null);
+        }}
+        title={
+          editingGoalId
+            ? 'Editar Meta de Ahorro'
+            : financeScope === 'family'
+            ? 'Crear Meta de Ahorro Familiar'
+            : `Crear Meta Personal (${activeAdult.name})`
+        }
         subtitle={
-          financeScope === 'family'
+          editingGoalId
+            ? 'Modifica los datos y monto objetivo de la meta'
+            : financeScope === 'family'
             ? 'Un objetivo compartido para el bienestar del hogar'
             : `Un proyecto o sueño personal de ${activeAdult.name}`
         }
@@ -1639,7 +2046,9 @@ export const FinanceView: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-stone-700 mb-1">Ahorro Inicial ($)</label>
+              <label className="block text-xs font-semibold text-stone-700 mb-1">
+                {editingGoalId ? 'Monto Ahorrado Actual ($)' : 'Ahorro Inicial ($)'}
+              </label>
               <input
                 type="number"
                 value={goalCurrent}
@@ -1652,7 +2061,10 @@ export const FinanceView: React.FC = () => {
           <div className="pt-3 flex justify-end gap-2 border-t border-stone-100">
             <button
               type="button"
-              onClick={() => setGoalModalOpen(false)}
+              onClick={() => {
+                setGoalModalOpen(false);
+                setEditingGoalId(null);
+              }}
               className="px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-100 rounded-xl transition-colors cursor-pointer"
             >
               Cancelar
@@ -1661,8 +2073,77 @@ export const FinanceView: React.FC = () => {
               type="submit"
               className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
             >
-              Crear Meta
+              {editingGoalId ? 'Guardar Cambios' : 'Crear Meta'}
             </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal Presupuesto Mensual */}
+      <Modal
+        isOpen={budgetModalOpen}
+        onClose={() => setBudgetModalOpen(false)}
+        title="Ajustar Límite de Presupuesto"
+        subtitle={`Define el tope mensual para ${editingBudgetCatName}`}
+      >
+        <form onSubmit={handleSaveBudget} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Categoría</label>
+            <input
+              type="text"
+              readOnly
+              value={editingBudgetCatName}
+              className="w-full px-3.5 py-2 bg-stone-100 border border-stone-200 rounded-xl text-sm font-semibold text-stone-700 cursor-not-allowed"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Límite Mensual ($)</label>
+            <input
+              type="number"
+              required
+              autoFocus
+              min={0}
+              placeholder="Ej: 300000"
+              value={budgetLimitInput}
+              onChange={(e) => setBudgetLimitInput(e.target.value)}
+              className="w-full px-3.5 py-2 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:bg-white"
+            />
+            <p className="text-[11px] text-stone-400 mt-1">
+              Ingresa el monto máximo que la familia planea gastar mensualmente en este rubro.
+            </p>
+          </div>
+
+          <div className="pt-3 flex justify-between items-center border-t border-stone-100">
+            {editingBudgetCatKey && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm('¿Seguro que quieres eliminar el presupuesto para esta categoría?')) {
+                    deleteBudget(editingBudgetCatKey);
+                    setBudgetModalOpen(false);
+                  }
+                }}
+                className="text-xs font-semibold text-rose-600 hover:text-rose-700 cursor-pointer"
+              >
+                Eliminar Límite
+              </button>
+            )}
+            <div className="flex gap-2 ml-auto">
+              <button
+                type="button"
+                onClick={() => setBudgetModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-100 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+              >
+                Guardar Presupuesto
+              </button>
+            </div>
           </div>
         </form>
       </Modal>

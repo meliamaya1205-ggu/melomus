@@ -43,6 +43,17 @@ export interface INotificationService {
   unsubscribeFromPush(userId?: string): Promise<boolean>;
   isQuietHours(start?: string, end?: string, now?: Date): boolean;
   shouldNotifyUser(options: ShouldNotifyOptions): { allow: boolean; reason?: string };
+  dispatchCloudPush(params: {
+    familyId: string;
+    title: string;
+    body: string;
+    category?: NotificationCategory;
+    targetUserId?: string;
+    targetRole?: 'mama' | 'papa' | 'all';
+    excludeUserId?: string;
+    url?: string;
+    isDiscrete?: boolean;
+  }): Promise<{ success: boolean; delivered?: number }>;
 }
 
 /**
@@ -452,6 +463,38 @@ export class NotificationService implements INotificationService {
       return false;
     }
   }
+
+  /**
+   * Invokes the server-side Supabase Edge Function to dispatch Web Push
+   * to other family devices even when the app is in the background.
+   */
+  public async dispatchCloudPush(params: {
+    familyId: string;
+    title: string;
+    body: string;
+    category?: NotificationCategory;
+    targetUserId?: string;
+    targetRole?: 'mama' | 'papa' | 'all';
+    excludeUserId?: string;
+    url?: string;
+    isDiscrete?: boolean;
+  }): Promise<{ success: boolean; delivered?: number }> {
+    if (!supabase) return { success: false };
+    try {
+      const { data, error } = await supabase.functions.invoke('send-web-push', {
+        body: params,
+      });
+      if (error) {
+        console.warn('[NotificationService] Edge Function push error:', error.message);
+        return { success: false };
+      }
+      return { success: true, delivered: data?.delivered || 0 };
+    } catch (err) {
+      console.warn('[NotificationService] Failed to invoke send-web-push:', err);
+      return { success: false };
+    }
+  }
 }
 
 export const notificationService = new NotificationService();
+

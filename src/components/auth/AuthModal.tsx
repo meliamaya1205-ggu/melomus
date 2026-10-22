@@ -47,7 +47,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   // Claim invite state
   const [manualToken, setManualToken] = useState('');
   const [inviteDetails, setInviteDetails] = useState<InviteDetailsResult | null>(null);
-  const [checkingInvite, setCheckingInvite] = useState(false);
+  const [checkingInvite, setCheckingInvite] = useState(() => Boolean(isOpen && inviteToken));
 
   const verifyInvite = async (tokenInput: string) => {
     let cleanToken = tokenInput.trim();
@@ -77,19 +77,64 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+
   // Reset form when opening
-  useEffect(() => {
+  if (isOpen !== prevIsOpen) {
+    setPrevIsOpen(isOpen);
     if (isOpen) {
       setErrorMessage(null);
       setSuccessMessage(null);
       if (inviteToken) {
         setMode('claim_invite');
-        verifyInvite(inviteToken);
+        setCheckingInvite(true);
       } else {
         setMode(initialMode);
+        setCheckingInvite(false);
       }
     }
-  }, [isOpen, inviteToken, initialMode]);
+  }
+
+  // Query invite details asynchronously when modal opens with inviteToken
+  useEffect(() => {
+    if (!isOpen || !inviteToken) return;
+    let cancelled = false;
+
+    let cleanToken = inviteToken.trim();
+    if (!cleanToken) return;
+    try {
+      if (cleanToken.includes('?')) {
+        const url = new URL(cleanToken.startsWith('http') ? cleanToken : `https://${cleanToken}`);
+        cleanToken = url.searchParams.get('vincular') || url.searchParams.get('token') || cleanToken;
+      }
+    } catch {
+      // not a url, use cleanToken directly
+    }
+
+    authService.getInviteDetails(cleanToken)
+      .then((details) => {
+        if (cancelled) return;
+        setInviteDetails(details);
+        if (details.valid && details.targetRelationship) {
+          setRelationship(details.targetRelationship);
+        } else {
+          setErrorMessage(details.message || 'El enlace de vinculación no es válido.');
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setErrorMessage('Error al consultar el enlace de vinculación.');
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCheckingInvite(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, inviteToken]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -180,50 +225,62 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         const signInRes = await authService.signIn(email, password);
         if (signInRes.success && signInRes.data) {
           user = signInRes.data.user;
+          const claimRes = await authService.claimCoAdminInvite(activeToken, name);
+          if (!claimRes.success || !claimRes.data) {
+            setErrorMessage(claimRes.error || 'No fue posible vincular tu cuenta con la familia.');
+            setLoading(false);
+            return;
+          }
+          user = {
+            ...user,
+            familyId: claimRes.data.familyId,
+            relationship: claimRes.data.relationship as PrimaryAdultRelationship,
+            memberId: claimRes.data.relationship,
+          };
         } else {
-          // Attempt sign up if account doesn't exist
-          const signUpRes = await authService.signUp({
+          // Attempt sign up directly linked to the invited family
+          const signUpRes = await authService.signUpForInvite({
             email,
             password,
             name,
             relationship,
-            familyName: inviteDetails?.familyName || 'Nuestra Familia',
+            inviteToken: activeToken,
           });
 
           if (signUpRes.success && signUpRes.data) {
             user = signUpRes.data.user;
           } else {
-            setErrorMessage(signUpRes.error || 'Error al autenticar usuario.');
+            setErrorMessage(signUpRes.error || 'Error al autenticar y vincular usuario.');
             setLoading(false);
             return;
           }
         }
-      }
-
-      // 2. Claim co-admin link
-      const claimRes = await authService.claimCoAdminInvite(activeToken, name);
-      setLoading(false);
-
-      if (claimRes.success && claimRes.data) {
-        triggerConfetti();
-        setSuccessMessage('¡Vinculación exitosa! Ahora eres coadministrador/a de la familia.');
-        if (user) {
-          onAuthSuccess?.({
-            ...user,
-            familyId: claimRes.data.familyId,
-            relationship: claimRes.data.relationship as PrimaryAdultRelationship,
-            memberId: claimRes.data.relationship,
-          });
-        }
-        setTimeout(() => {
-          // Clean URL token query param
-          window.history.replaceState({}, document.title, window.location.pathname);
-          onClose();
-          window.location.reload();
-        }, 1500);
       } else {
-        setErrorMessage(claimRes.error || 'No fue posible vincular tu cuenta con la familia.');
+        const claimRes = await authService.claimCoAdminInvite(activeToken, name);
+        if (!claimRes.success || !claimRes.data) {
+          setErrorMessage(claimRes.error || 'No fue posible vincular tu cuenta con la familia.');
+          setLoading(false);
+          return;
+        }
+        user = {
+          ...user,
+          familyId: claimRes.data.familyId,
+          relationship: claimRes.data.relationship as PrimaryAdultRelationship,
+          memberId: claimRes.data.relationship,
+        };
       }
+
+      setLoading(false);
+      triggerConfetti();
+      setSuccessMessage('¡Vinculación exitosa! Ahora eres coadministrador/a de la familia.');
+      if (user) {
+        onAuthSuccess?.(user);
+      }
+      setTimeout(() => {
+        // Clean URL token query param
+        window.history.replaceState({}, document.title, window.location.pathname);
+        onClose();
+      }, 1000);
     } catch (err: unknown) {
       setLoading(false);
       setErrorMessage(err instanceof Error ? err.message : 'Error inesperado.');

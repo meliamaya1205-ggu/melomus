@@ -373,7 +373,7 @@ create index if not exists idx_couple_records_family_id on couple_records(family
 create table if not exists home_records (
   id text not null,
   family_id uuid not null references families(id) on delete cascade,
-  record_type text not null check (record_type in ('shopping', 'cleaning', 'maintenance', 'reset_mission')),
+  record_type text not null check (record_type in ('shopping', 'cleaning', 'maintenance', 'reset_mission', 'area', 'reset_session')),
   data jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),

@@ -372,10 +372,10 @@ export const initialShoppingItems: ShoppingItem[] = [
 ];
 
 export const initialCleaningTasks: CleaningTask[] = [
-  { id: 'c-1', area: 'kitchen', title: 'Lavar y guardar platos de la cena', frequency: 'daily', assignedMemberId: 'papa', completedToday: true },
-  { id: 'c-2', area: 'living', title: 'Ordenar cojines y despejar mesa de centro', frequency: 'daily', assignedMemberId: 'mama', completedToday: false },
-  { id: 'c-3', area: 'bedrooms', title: 'Ventilar dormitorios y ordenar camas', frequency: 'daily', assignedMemberId: 'mama', completedToday: true },
-  { id: 'c-4', area: 'bathroom', title: 'Limpieza profunda de baño familiar', frequency: 'weekly', assignedMemberId: 'papa', completedToday: false },
+  { id: 'c-1', areaId: 'area_kitchen', area: 'kitchen', title: 'Lavar y guardar platos de la cena', frequency: 'daily', assignedMemberId: 'papa', completedToday: true },
+  { id: 'c-2', areaId: 'area_living', area: 'living', title: 'Ordenar cojines y despejar mesa de centro', frequency: 'daily', assignedMemberId: 'mama', completedToday: false },
+  { id: 'c-3', areaId: 'area_bedrooms', area: 'bedrooms', title: 'Ventilar dormitorios y ordenar camas', frequency: 'daily', assignedMemberId: 'mama', completedToday: true },
+  { id: 'c-4', areaId: 'area_bathroom', area: 'bathroom', title: 'Limpieza profunda de baño familiar', frequency: 'weekly', assignedMemberId: 'papa', completedToday: false },
 ];
 
 export const initialMaintenanceTasks: MaintenanceTask[] = [

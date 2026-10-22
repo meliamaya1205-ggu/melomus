@@ -247,7 +247,7 @@ async function runTests() {
   db.tasks.set('task_1', { id: 'task_1', family_id: familyId, title: 'Comprar pañales' });
 
   // Crear una segunda familia ajena (Familia González)
-  const gonzalez = db.registerPrimaryAdult('gonzalez@otro.cl', 'Mamá González', 'mama', 'Familia González');
+  const _gonzalez = db.registerPrimaryAdult('gonzalez@otro.cl', 'Mamá González', 'mama', 'Familia González');
   const gonzalezTasks = db.queryTasksForCurrentSession();
   if (gonzalezTasks.some((t) => t.family_id === familyId)) {
     throw new Error('Violación de RLS: Otra familia pudo ver las tareas');

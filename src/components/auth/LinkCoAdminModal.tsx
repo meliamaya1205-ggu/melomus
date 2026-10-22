@@ -43,6 +43,27 @@ export const LinkCoAdminModal: React.FC<LinkCoAdminModalProps> = ({
     }
   };
 
+  const handleShareInvite = async () => {
+    if (!inviteResult?.inviteUrl) return;
+    const shareData = {
+      title: 'Invitación a MELOMUS',
+      text: `¡Hola! Te invito a unirte a nuestra familia "${familyName}" en MELOMUS como adulto principal coadministrador ${targetEmoji}:\n\n${inviteResult.inviteUrl}\n\n(Este enlace es seguro, de un solo uso y expira en 48 horas).`,
+      url: inviteResult.inviteUrl,
+    };
+
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share(shareData);
+        return;
+      } catch (err: unknown) {
+        if ((err as Error).name === 'AbortError') return;
+      }
+    }
+
+    // Fallback if Web Share is not supported or fails
+    handleCopyLink();
+  };
+
   const handleCopyLink = () => {
     if (!inviteResult?.inviteUrl) return;
     navigator.clipboard.writeText(inviteResult.inviteUrl);
@@ -114,10 +135,10 @@ export const LinkCoAdminModal: React.FC<LinkCoAdminModalProps> = ({
           <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
             <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-xs text-emerald-900">
               <p className="font-bold text-sm text-emerald-800 flex items-center gap-1.5 mb-1">
-                <Check className="w-4 h-4 text-emerald-600" /> ¡Enlace seguro generado con éxito!
+                <Check className="w-4 h-4 text-emerald-600" /> Invitación creada correctamente
               </p>
               <p className="text-emerald-700">
-                Comparte este enlace con {targetLabel}. Podrá abrirlo en su teléfono y vincularse a la familia.
+                Comparte este enlace con {targetLabel}. Podrá abrirlo en su teléfono para registrarse o iniciar sesión y vincularse a la familia.
               </p>
             </div>
 
@@ -136,18 +157,25 @@ export const LinkCoAdminModal: React.FC<LinkCoAdminModalProps> = ({
                   title="Copiar al portapapeles"
                 >
                   {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                  <span>{copied ? 'Copiado' : 'Copiar'}</span>
+                  <span>{copied ? '¡Copiado!' : 'Copiar'}</span>
                 </button>
               </div>
             </div>
 
             <div className="pt-2 flex flex-col sm:flex-row gap-2">
               <button
-                onClick={handleShareWhatsApp}
-                className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-xs"
+                onClick={handleShareInvite}
+                className="flex-1 py-2.5 px-4 bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-600 hover:to-rose-600 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-xs"
               >
                 <Share2 className="w-4 h-4" />
-                <span>Enviar por WhatsApp</span>
+                <span>Compartir invitación</span>
+              </button>
+              <button
+                onClick={handleShareWhatsApp}
+                className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                title="Compartir por WhatsApp"
+              >
+                <span>WhatsApp</span>
               </button>
               <button
                 onClick={onClose}

@@ -6,15 +6,17 @@ import { CalendarEvent } from '../types/calendar';
 import { Habit } from '../types/habits';
 import { Income, Expense, Bill, Debt, Budget, FinancialGoal } from '../types/finance';
 import { MedicalAppointment, Medication, MedicationDoseLog, PediatricQuery, VaccineRecord } from '../types/health';
-import { ShoppingItem, CleaningTask, MaintenanceTask } from '../types/home';
+import { ShoppingItem, CleaningTask, MaintenanceTask, HomeArea, DEFAULT_HOME_AREAS } from '../types/home';
 import { CoupleCheckIn, CoupleConversation, CoupleDate, CoupleGesture, CoupleAgreement, CoupleSpiritualItem, CuquiTimeSession, CoupleMemory } from '../types/couple';
 import { Reward, PointsHistoryEntry } from '../types/rewards';
 import { FamilyMember } from '../types/family';
 import { AppCustomizationConfig } from '../types/config';
 import { NotificationPreferencesState } from '../types/notifications';
+import { FamilyResetSession } from '../types/reset';
 import { ProfileThemePreference } from '../types/theme';
 import { IDataService } from './dataAdapter';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { outboxService } from './outboxService';
 import {
   initialMembers,
   initialTasks,
@@ -91,6 +93,14 @@ export class SupabaseDataService implements IDataService {
 
   constructor() {
     this.cachedState = storageService.loadFullState();
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => {
+        if (this.familyId) {
+          this.flushOutbox();
+        }
+      });
+    }
   }
 
   // ----------------------------------------------------------------------------
@@ -206,9 +216,15 @@ export class SupabaseDataService implements IDataService {
       // 4. Subscribe to Realtime postgres_changes
       this.subscribeToRealtime(family.id);
 
+      // 5. Drain pending outbox items that were queued while offline
+      await this.flushOutbox();
+
+      const pending = outboxService.getPendingCount();
+      outboxService.setStatus(pending > 0 ? 'pending' : 'synced');
       return this.cachedState;
     } catch (err) {
       console.warn('[SupabaseDataService] Error cargando estado desde la nube, usando cache local:', err);
+      outboxService.setStatus('error');
       return this.cachedState;
     }
   }
@@ -244,29 +260,60 @@ export class SupabaseDataService implements IDataService {
       clearTimeout(existingTimer);
     }
 
+    // 1. Immediately enqueue in persistent Outbox
+    if (this.familyId) {
+      outboxService.enqueue(this.familyId, timerKey, data);
+    }
+
     // Debounce fast successive changes by 150ms
     const timer = setTimeout(async () => {
       this.debounceTimers.delete(timerKey);
-      await this.pushKeyToSupabase(key, data);
+      try {
+        await this.pushKeyToSupabase(key, data);
+      } catch {
+        // Error recorded in outboxService and syncStatus updated
+      }
     }, 150);
 
     this.debounceTimers.set(timerKey, timer);
   }
 
   /**
+   * Helper to ensure Supabase operations throw on database or RLS errors
+   */
+  private async checkSupabase(promise: PromiseLike<{ error: any }>): Promise<void> {
+    const res = await promise;
+    if (res && res.error) {
+      throw res.error;
+    }
+  }
+
+  /**
    * Pushes a specific state slice to the corresponding Supabase PostgreSQL table
    */
-  private async pushKeyToSupabase<K extends keyof FullAppState>(key: K, data: FullAppState[K]): Promise<void> {
-    if (!this.familyId || !supabase) return;
+  public async pushKeyToSupabase<K extends keyof FullAppState>(key: K, data: FullAppState[K]): Promise<boolean> {
+    if (!this.familyId || !supabase) return false;
     const familyId = this.familyId;
     const currentUserId = this.currentUser?.id;
     const now = new Date().toISOString();
+    const opId = `op_${familyId}_${String(key)}`;
+
+    // Offline check: do not attempt network request, preserve in Outbox
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      outboxService.setStatus('offline');
+      return false;
+    }
+
+    outboxService.setStatus('syncing');
 
     try {
       switch (key) {
         case 'tasks': {
           const tasks = data as unknown as Task[];
-          if (tasks.length === 0) break;
+          if (tasks.length === 0) {
+            await this.checkSupabase(supabase.from('tasks').delete().eq('family_id', familyId));
+            break;
+          }
           const rows = tasks.map((t) => {
             this.recentLocalMutations.set(`task_${t.id}`, Date.now());
             return {
@@ -285,13 +332,18 @@ export class SupabaseDataService implements IDataService {
               updated_at: now,
             };
           });
-          await supabase.from('tasks').upsert(rows, { onConflict: 'family_id,id' });
+          await this.checkSupabase(supabase.from('tasks').upsert(rows, { onConflict: 'family_id,id' }));
+          const ids = tasks.map((t) => t.id);
+          await this.checkSupabase(supabase.from('tasks').delete().eq('family_id', familyId).not('id', 'in', `(${ids.join(',')})`));
           break;
         }
 
         case 'events': {
           const events = data as unknown as CalendarEvent[];
-          if (events.length === 0) break;
+          if (events.length === 0) {
+            await this.checkSupabase(supabase.from('calendar_events').delete().eq('family_id', familyId));
+            break;
+          }
           const rows = events.map((e) => {
             this.recentLocalMutations.set(`event_${e.id}`, Date.now());
             return {
@@ -310,13 +362,18 @@ export class SupabaseDataService implements IDataService {
               updated_at: now,
             };
           });
-          await supabase.from('calendar_events').upsert(rows, { onConflict: 'family_id,id' });
+          await this.checkSupabase(supabase.from('calendar_events').upsert(rows, { onConflict: 'family_id,id' }));
+          const ids = events.map((e) => e.id);
+          await this.checkSupabase(supabase.from('calendar_events').delete().eq('family_id', familyId).not('id', 'in', `(${ids.join(',')})`));
           break;
         }
 
         case 'habits': {
           const habits = data as unknown as Habit[];
-          if (habits.length === 0) break;
+          if (habits.length === 0) {
+            await this.checkSupabase(supabase.from('habits').delete().eq('family_id', familyId));
+            break;
+          }
           const rows = habits.map((h) => {
             this.recentLocalMutations.set(`habit_${h.id}`, Date.now());
             return {
@@ -340,13 +397,18 @@ export class SupabaseDataService implements IDataService {
               updated_at: now,
             };
           });
-          await supabase.from('habits').upsert(rows, { onConflict: 'family_id,id' });
+          await this.checkSupabase(supabase.from('habits').upsert(rows, { onConflict: 'family_id,id' }));
+          const ids = habits.map((h) => h.id);
+          await this.checkSupabase(supabase.from('habits').delete().eq('family_id', familyId).not('id', 'in', `(${ids.join(',')})`));
           break;
         }
 
         case 'expenses': {
           const expenses = data as unknown as Expense[];
-          if (expenses.length === 0) break;
+          if (expenses.length === 0) {
+            await this.checkSupabase(supabase.from('finances_expenses').delete().eq('family_id', familyId));
+            break;
+          }
           const rows = expenses.map((e) => {
             this.recentLocalMutations.set(`expense_${e.id}`, Date.now());
             return {
@@ -365,13 +427,18 @@ export class SupabaseDataService implements IDataService {
               updated_at: now,
             };
           });
-          await supabase.from('finances_expenses').upsert(rows, { onConflict: 'family_id,id' });
+          await this.checkSupabase(supabase.from('finances_expenses').upsert(rows, { onConflict: 'family_id,id' }));
+          const ids = expenses.map((e) => e.id);
+          await this.checkSupabase(supabase.from('finances_expenses').delete().eq('family_id', familyId).not('id', 'in', `(${ids.join(',')})`));
           break;
         }
 
         case 'incomes': {
           const incomes = data as unknown as Income[];
-          if (incomes.length === 0) break;
+          if (incomes.length === 0) {
+            await this.checkSupabase(supabase.from('finances_incomes').delete().eq('family_id', familyId));
+            break;
+          }
           const rows = incomes.map((i) => {
             this.recentLocalMutations.set(`income_${i.id}`, Date.now());
             return {
@@ -390,13 +457,18 @@ export class SupabaseDataService implements IDataService {
               updated_at: now,
             };
           });
-          await supabase.from('finances_incomes').upsert(rows, { onConflict: 'family_id,id' });
+          await this.checkSupabase(supabase.from('finances_incomes').upsert(rows, { onConflict: 'family_id,id' }));
+          const ids = incomes.map((i) => i.id);
+          await this.checkSupabase(supabase.from('finances_incomes').delete().eq('family_id', familyId).not('id', 'in', `(${ids.join(',')})`));
           break;
         }
 
         case 'bills': {
           const bills = data as unknown as Bill[];
-          if (bills.length === 0) break;
+          if (bills.length === 0) {
+            await this.checkSupabase(supabase.from('finances_bills').delete().eq('family_id', familyId));
+            break;
+          }
           const rows = bills.map((b) => {
             this.recentLocalMutations.set(`bill_${b.id}`, Date.now());
             return {
@@ -416,13 +488,18 @@ export class SupabaseDataService implements IDataService {
               updated_at: now,
             };
           });
-          await supabase.from('finances_bills').upsert(rows, { onConflict: 'family_id,id' });
+          await this.checkSupabase(supabase.from('finances_bills').upsert(rows, { onConflict: 'family_id,id' }));
+          const ids = bills.map((b) => b.id);
+          await this.checkSupabase(supabase.from('finances_bills').delete().eq('family_id', familyId).not('id', 'in', `(${ids.join(',')})`));
           break;
         }
 
         case 'debts': {
           const debts = data as unknown as Debt[];
-          if (debts.length === 0) break;
+          if (debts.length === 0) {
+            await this.checkSupabase(supabase.from('finances_debts').delete().eq('family_id', familyId));
+            break;
+          }
           const rows = debts.map((d) => {
             this.recentLocalMutations.set(`debt_${d.id}`, Date.now());
             return {
@@ -443,13 +520,18 @@ export class SupabaseDataService implements IDataService {
               updated_at: now,
             };
           });
-          await supabase.from('finances_debts').upsert(rows, { onConflict: 'family_id,id' });
+          await this.checkSupabase(supabase.from('finances_debts').upsert(rows, { onConflict: 'family_id,id' }));
+          const ids = debts.map((d) => d.id);
+          await this.checkSupabase(supabase.from('finances_debts').delete().eq('family_id', familyId).not('id', 'in', `(${ids.join(',')})`));
           break;
         }
 
         case 'budgets': {
           const budgets = data as unknown as Budget[];
-          if (budgets.length === 0) break;
+          if (budgets.length === 0) {
+            await this.checkSupabase(supabase.from('finances_budgets').delete().eq('family_id', familyId));
+            break;
+          }
           const rows = budgets.map((b) => ({
             id: b.id,
             family_id: familyId,
@@ -459,13 +541,18 @@ export class SupabaseDataService implements IDataService {
             data: b,
             updated_at: now,
           }));
-          await supabase.from('finances_budgets').upsert(rows, { onConflict: 'family_id,id' });
+          await this.checkSupabase(supabase.from('finances_budgets').upsert(rows, { onConflict: 'family_id,id' }));
+          const ids = budgets.map((b) => b.id);
+          await this.checkSupabase(supabase.from('finances_budgets').delete().eq('family_id', familyId).not('id', 'in', `(${ids.join(',')})`));
           break;
         }
 
         case 'goals': {
           const goals = data as unknown as FinancialGoal[];
-          if (goals.length === 0) break;
+          if (goals.length === 0) {
+            await this.checkSupabase(supabase.from('finances_goals').delete().eq('family_id', familyId));
+            break;
+          }
           const rows = goals.map((g) => ({
             id: g.id,
             family_id: familyId,
@@ -479,7 +566,9 @@ export class SupabaseDataService implements IDataService {
             data: g,
             updated_at: now,
           }));
-          await supabase.from('finances_goals').upsert(rows, { onConflict: 'family_id,id' });
+          await this.checkSupabase(supabase.from('finances_goals').upsert(rows, { onConflict: 'family_id,id' }));
+          const ids = goals.map((g) => g.id);
+          await this.checkSupabase(supabase.from('finances_goals').delete().eq('family_id', familyId).not('id', 'in', `(${ids.join(',')})`));
           break;
         }
 
@@ -501,7 +590,10 @@ export class SupabaseDataService implements IDataService {
               : 'vaccine';
 
           const items = data as unknown as Array<{ id: string; memberId?: string; childId?: string }>;
-          if (items.length === 0) break;
+          if (items.length === 0) {
+            await this.checkSupabase(supabase.from('health_records').delete().eq('family_id', familyId).eq('record_type', recordType));
+            break;
+          }
           const rows = items.map((item) => {
             this.recentLocalMutations.set(`health_${item.id}`, Date.now());
             return {
@@ -513,7 +605,9 @@ export class SupabaseDataService implements IDataService {
               updated_at: now,
             };
           });
-          await supabase.from('health_records').upsert(rows, { onConflict: 'family_id,id' });
+          await this.checkSupabase(supabase.from('health_records').upsert(rows, { onConflict: 'family_id,id' }));
+          const ids = items.map((item) => item.id);
+          await this.checkSupabase(supabase.from('health_records').delete().eq('family_id', familyId).eq('record_type', recordType).not('id', 'in', `(${ids.join(',')})`));
           break;
         }
 
@@ -521,6 +615,7 @@ export class SupabaseDataService implements IDataService {
         case 'shoppingItems':
         case 'cleaningTasks':
         case 'maintenanceTasks':
+        case 'homeAreas':
         case 'resetMissions': {
           const recordType =
             key === 'shoppingItems'
@@ -529,10 +624,15 @@ export class SupabaseDataService implements IDataService {
               ? 'cleaning'
               : key === 'maintenanceTasks'
               ? 'maintenance'
+              : key === 'homeAreas'
+              ? 'area'
               : 'reset_mission';
 
           const items = data as unknown as Array<{ id: string }>;
-          if (items.length === 0) break;
+          if (items.length === 0) {
+            await this.checkSupabase(supabase.from('home_records').delete().eq('family_id', familyId).eq('record_type', recordType));
+            break;
+          }
           const rows = items.map((item) => {
             this.recentLocalMutations.set(`home_${item.id}`, Date.now());
             return {
@@ -543,7 +643,41 @@ export class SupabaseDataService implements IDataService {
               updated_at: now,
             };
           });
-          await supabase.from('home_records').upsert(rows, { onConflict: 'family_id,id' });
+          try {
+            await this.checkSupabase(supabase.from('home_records').upsert(rows, { onConflict: 'family_id,id' }));
+            const ids = items.map((item) => item.id);
+            await this.checkSupabase(supabase.from('home_records').delete().eq('family_id', familyId).eq('record_type', recordType).not('id', 'in', `(${ids.join(',')})`));
+          } catch (homeErr) {
+            if (recordType === 'area') {
+              console.warn('[SupabaseDataService] home_records area fallback, persisting in app_customizations:', homeErr);
+              const customConfig = (this.cachedState.config || {}) as any;
+              customConfig.homeAreas = items;
+              await supabase.from('app_customizations').upsert({
+                family_id: familyId,
+                config: customConfig,
+                updated_at: now,
+              }, { onConflict: 'family_id' });
+            } else {
+              throw homeErr;
+            }
+          }
+          break;
+        }
+
+        case 'resetSession': {
+          const session = data as unknown as FamilyResetSession | null;
+          if (!session) {
+            await this.checkSupabase(supabase.from('home_records').delete().eq('family_id', familyId).eq('record_type', 'reset_session'));
+            break;
+          }
+          this.recentLocalMutations.set(`home_${session.id}`, Date.now());
+          await this.checkSupabase(supabase.from('home_records').upsert({
+            id: session.id,
+            family_id: familyId,
+            record_type: 'reset_session',
+            data: session,
+            updated_at: now,
+          }, { onConflict: 'family_id,id' }));
           break;
         }
 
@@ -574,7 +708,10 @@ export class SupabaseDataService implements IDataService {
               : 'memory';
 
           const items = data as unknown as Array<{ id: string }>;
-          if (items.length === 0) break;
+          if (items.length === 0) {
+            await this.checkSupabase(supabase.from('couple_records').delete().eq('family_id', familyId).eq('item_type', itemType));
+            break;
+          }
           const rows = items.map((item) => {
             this.recentLocalMutations.set(`couple_${item.id}`, Date.now());
             return {
@@ -586,13 +723,18 @@ export class SupabaseDataService implements IDataService {
               updated_at: now,
             };
           });
-          await supabase.from('couple_records').upsert(rows, { onConflict: 'family_id,id' });
+          await this.checkSupabase(supabase.from('couple_records').upsert(rows, { onConflict: 'family_id,id' }));
+          const ids = items.map((item) => item.id);
+          await this.checkSupabase(supabase.from('couple_records').delete().eq('family_id', familyId).eq('item_type', itemType).not('id', 'in', `(${ids.join(',')})`));
           break;
         }
 
         case 'rewards': {
           const rewards = data as unknown as Reward[];
-          if (rewards.length === 0) break;
+          if (rewards.length === 0) {
+            await this.checkSupabase(supabase.from('rewards').delete().eq('family_id', familyId));
+            break;
+          }
           const rows = rewards.map((r) => ({
             id: r.id,
             family_id: familyId,
@@ -605,7 +747,9 @@ export class SupabaseDataService implements IDataService {
             data: r,
             updated_at: now,
           }));
-          await supabase.from('rewards').upsert(rows, { onConflict: 'family_id,id' });
+          await this.checkSupabase(supabase.from('rewards').upsert(rows, { onConflict: 'family_id,id' }));
+          const ids = rewards.map((r) => r.id);
+          await this.checkSupabase(supabase.from('rewards').delete().eq('family_id', familyId).not('id', 'in', `(${ids.join(',')})`));
           break;
         }
 
@@ -621,7 +765,7 @@ export class SupabaseDataService implements IDataService {
             date: p.date,
             data: p,
           }));
-          await supabase.from('points_history').upsert(rows, { onConflict: 'family_id,id' });
+          await this.checkSupabase(supabase.from('points_history').upsert(rows, { onConflict: 'family_id,id' }));
           break;
         }
 
@@ -643,14 +787,17 @@ export class SupabaseDataService implements IDataService {
             data: m,
             updated_at: now,
           }));
-          await supabase.from('family_members').upsert(rows, { onConflict: 'family_id,id' });
+          await this.checkSupabase(supabase.from('family_members').upsert(rows, { onConflict: 'family_id,id' }));
+          const ids = members.map((m) => m.id);
+          await this.checkSupabase(supabase.from('family_members').delete().eq('family_id', familyId).not('id', 'in', `(${ids.join(',')})`));
           break;
         }
 
         case 'config':
         case 'notificationPreferences':
         case 'themePreferences': {
-          await supabase.from('app_customizations').upsert(
+          this.recentLocalMutations.set(`customizations_${familyId}`, Date.now());
+          await this.checkSupabase(supabase.from('app_customizations').upsert(
             {
               family_id: familyId,
               config: this.cachedState.config,
@@ -659,16 +806,57 @@ export class SupabaseDataService implements IDataService {
               updated_at: now,
             },
             { onConflict: 'family_id' }
-          );
+          ));
           break;
         }
 
         default:
           break;
       }
-    } catch (err) {
-      console.warn(`[SupabaseDataService] Error sincronizando ${String(key)} con Supabase:`, err);
+
+      // Success: remove from persistent Outbox and update sync status
+      await outboxService.remove(opId);
+      const remaining = outboxService.getPendingCount();
+      outboxService.setStatus(remaining > 0 ? 'pending' : 'synced');
+      return true;
+    } catch (err: any) {
+      const errMsg = err?.message || 'Error al sincronizar con Supabase';
+      console.warn(`[SupabaseDataService] Error sincronizando ${String(key)} con Supabase:`, errMsg);
+      await outboxService.recordError(opId, errMsg);
+      throw err;
     }
+  }
+
+  /**
+   * Flushes all pending outbox mutations to Supabase in chronological order
+   */
+  public async flushOutbox(): Promise<void> {
+    if (!this.familyId || !supabase || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      return;
+    }
+
+    const items = await outboxService.getAll(this.familyId);
+    if (items.length === 0) {
+      outboxService.setStatus('synced');
+      return;
+    }
+
+    outboxService.setStatus('syncing');
+
+    for (const item of items) {
+      try {
+        await this.pushKeyToSupabase(item.key as keyof FullAppState, item.payload as any);
+      } catch (err) {
+        console.warn(`[SupabaseDataService] Fallo al vaciar outbox para ${item.key}:`, err);
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          outboxService.setStatus('offline');
+          return;
+        }
+      }
+    }
+
+    const remaining = outboxService.getPendingCount();
+    outboxService.setStatus(remaining > 0 ? 'pending' : 'synced');
   }
 
   // ----------------------------------------------------------------------------
@@ -724,6 +912,16 @@ export class SupabaseDataService implements IDataService {
       { event: '*', schema: 'public', table: 'finances_debts', filter: `family_id=eq.${familyId}` },
       (payload) => this.handleDebtRealtime(payload)
     );
+    channel.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'finances_budgets', filter: `family_id=eq.${familyId}` },
+      (payload) => this.handleBudgetRealtime(payload)
+    );
+    channel.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'finances_goals', filter: `family_id=eq.${familyId}` },
+      (payload) => this.handleGoalRealtime(payload)
+    );
 
     // 5. Salud Familiar
     channel.on(
@@ -770,6 +968,13 @@ export class SupabaseDataService implements IDataService {
       'postgres_changes',
       { event: '*', schema: 'public', table: 'notifications', filter: `family_id=eq.${familyId}` },
       (payload) => this.handleNotificationRealtime(payload)
+    );
+
+    // 11. Personalización de la app y temas
+    channel.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'app_customizations', filter: `family_id=eq.${familyId}` },
+      (payload) => this.handleCustomizationsRealtime(payload)
     );
 
     channel.subscribe((status) => {
@@ -1181,24 +1386,95 @@ export class SupabaseDataService implements IDataService {
     });
   }
 
+  private handleBudgetRealtime(payload: any): void {
+    const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
+    const row = payload.new || payload.old;
+    if (!row) return;
+
+    const currentBudgets = [...this.cachedState.budgets];
+    if (eventType === 'DELETE') {
+      this.notifyListeners('budgets', currentBudgets.filter((b) => b.id !== row.id));
+      return;
+    }
+
+    const mappedBudget: Budget = row.data && Object.keys(row.data).length > 0
+      ? { ...row.data, id: row.id, monthlyLimit: Number(row.monthly_limit ?? row.data.monthlyLimit) }
+      : {
+          id: row.id,
+          categoryKey: row.category_key,
+          monthlyLimit: Number(row.monthly_limit),
+          responsibleId: row.responsible_id || 'family',
+        };
+
+    const idx = currentBudgets.findIndex((b) => b.id === mappedBudget.id);
+    if (idx >= 0) currentBudgets[idx] = mappedBudget;
+    else currentBudgets.push(mappedBudget);
+
+    this.notifyListeners('budgets', currentBudgets, {
+      authorId: row.created_by_user_id,
+      table: 'finances_budgets',
+      eventType,
+      entityId: mappedBudget.id,
+    });
+  }
+
+  private handleGoalRealtime(payload: any): void {
+    const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
+    const row = payload.new || payload.old;
+    if (!row) return;
+
+    const currentGoals = [...this.cachedState.goals];
+    if (eventType === 'DELETE') {
+      this.notifyListeners('goals', currentGoals.filter((g) => g.id !== row.id));
+      return;
+    }
+
+    const mappedGoal: FinancialGoal = row.data && Object.keys(row.data).length > 0
+      ? {
+          ...row.data,
+          id: row.id,
+          targetAmount: Number(row.target_amount ?? row.data.targetAmount),
+          currentAmount: Number(row.current_amount ?? row.data.currentAmount),
+        }
+      : {
+          id: row.id,
+          name: row.name,
+          targetAmount: Number(row.target_amount),
+          currentAmount: Number(row.current_amount || 0),
+          targetDate: row.target_date,
+          category: row.category || 'family',
+          responsibleId: row.responsible_id || 'family',
+        };
+
+    const idx = currentGoals.findIndex((g) => g.id === mappedGoal.id);
+    if (idx >= 0) currentGoals[idx] = mappedGoal;
+    else currentGoals.push(mappedGoal);
+
+    this.notifyListeners('goals', currentGoals, {
+      authorId: row.created_by_user_id,
+      table: 'finances_goals',
+      eventType,
+      entityId: mappedGoal.id,
+    });
+  }
+
   private handleHealthRealtime(payload: any): void {
     const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
     const row = payload.new || payload.old;
     if (!row) return;
 
-    const recordType = row.record_type;
-    const key =
-      recordType === 'appointment'
-        ? 'appointments'
-        : recordType === 'medication'
-        ? 'medications'
-        : recordType === 'dose_log'
-        ? 'doseLogs'
-        : recordType === 'pediatric_query'
-        ? 'pediatricQueries'
-        : 'vaccineRecords';
+    let key: 'appointments' | 'medications' | 'doseLogs' | 'pediatricQueries' | 'vaccineRecords' = 'vaccineRecords';
+    if (this.cachedState.appointments?.some((i) => i.id === row.id)) key = 'appointments';
+    else if (this.cachedState.medications?.some((i) => i.id === row.id)) key = 'medications';
+    else if (this.cachedState.doseLogs?.some((i) => i.id === row.id)) key = 'doseLogs';
+    else if (this.cachedState.pediatricQueries?.some((i) => i.id === row.id)) key = 'pediatricQueries';
+    else if (this.cachedState.vaccineRecords?.some((i) => i.id === row.id)) key = 'vaccineRecords';
+    else if (row.record_type === 'appointment') key = 'appointments';
+    else if (row.record_type === 'medication') key = 'medications';
+    else if (row.record_type === 'dose_log') key = 'doseLogs';
+    else if (row.record_type === 'pediatric_query') key = 'pediatricQueries';
 
-    const currentList = [...(this.cachedState[key] as any[])];
+    const currentList = [...((this.cachedState[key] || []) as any[])];
 
     if (eventType === 'DELETE') {
       this.notifyListeners(key, currentList.filter((item) => item.id !== row.id));
@@ -1223,25 +1499,33 @@ export class SupabaseDataService implements IDataService {
     const row = payload.new || payload.old;
     if (!row) return;
 
-    const itemType = row.item_type;
-    const key =
-      itemType === 'check_in'
-        ? 'coupleCheckIns'
-        : itemType === 'conversation'
-        ? 'coupleConversations'
-        : itemType === 'date'
-        ? 'coupleDates'
-        : itemType === 'gesture'
-        ? 'coupleGestures'
-        : itemType === 'agreement'
-        ? 'coupleAgreements'
-        : itemType === 'spiritual'
-        ? 'coupleSpiritualItems'
-        : itemType === 'cuqui_time'
-        ? 'cuquiTimeSessions'
-        : 'coupleMemories';
+    let key:
+      | 'coupleCheckIns'
+      | 'coupleConversations'
+      | 'coupleDates'
+      | 'coupleGestures'
+      | 'coupleAgreements'
+      | 'coupleSpiritualItems'
+      | 'cuquiTimeSessions'
+      | 'coupleMemories' = 'coupleMemories';
 
-    const currentList = [...(this.cachedState[key] as any[])];
+    if (this.cachedState.coupleCheckIns?.some((i) => i.id === row.id)) key = 'coupleCheckIns';
+    else if (this.cachedState.coupleConversations?.some((i) => i.id === row.id)) key = 'coupleConversations';
+    else if (this.cachedState.coupleDates?.some((i) => i.id === row.id)) key = 'coupleDates';
+    else if (this.cachedState.coupleGestures?.some((i) => i.id === row.id)) key = 'coupleGestures';
+    else if (this.cachedState.coupleAgreements?.some((i) => i.id === row.id)) key = 'coupleAgreements';
+    else if (this.cachedState.coupleSpiritualItems?.some((i) => i.id === row.id)) key = 'coupleSpiritualItems';
+    else if (this.cachedState.cuquiTimeSessions?.some((i) => i.id === row.id)) key = 'cuquiTimeSessions';
+    else if (this.cachedState.coupleMemories?.some((i) => i.id === row.id)) key = 'coupleMemories';
+    else if (row.item_type === 'check_in') key = 'coupleCheckIns';
+    else if (row.item_type === 'conversation') key = 'coupleConversations';
+    else if (row.item_type === 'date') key = 'coupleDates';
+    else if (row.item_type === 'gesture') key = 'coupleGestures';
+    else if (row.item_type === 'agreement') key = 'coupleAgreements';
+    else if (row.item_type === 'spiritual') key = 'coupleSpiritualItems';
+    else if (row.item_type === 'cuqui_time') key = 'cuquiTimeSessions';
+
+    const currentList = [...((this.cachedState[key] || []) as any[])];
 
     if (eventType === 'DELETE') {
       this.notifyListeners(key, currentList.filter((item) => item.id !== row.id));
@@ -1266,17 +1550,40 @@ export class SupabaseDataService implements IDataService {
     const row = payload.new || payload.old;
     if (!row) return;
 
-    const recordType = row.record_type;
-    const key =
-      recordType === 'shopping'
-        ? 'shoppingItems'
-        : recordType === 'cleaning'
-        ? 'cleaningTasks'
-        : recordType === 'maintenance'
-        ? 'maintenanceTasks'
-        : 'resetMissions';
+    if (row.record_type === 'reset_session' || this.cachedState.resetSession?.id === row.id) {
+      if (eventType === 'DELETE') {
+        this.cachedState.resetSession = null;
+        this.notifyListeners('resetSession', null, {
+          authorId: row.created_by_user_id,
+          table: 'home_records',
+          eventType,
+          entityId: row.id,
+        });
+      } else {
+        const item = { ...row.data, id: row.id };
+        this.cachedState.resetSession = item;
+        this.notifyListeners('resetSession', item, {
+          authorId: row.created_by_user_id,
+          table: 'home_records',
+          eventType,
+          entityId: row.id,
+        });
+      }
+      return;
+    }
 
-    const currentList = [...(this.cachedState[key] as any[])];
+    let key: 'shoppingItems' | 'cleaningTasks' | 'maintenanceTasks' | 'resetMissions' | 'homeAreas' = 'resetMissions';
+    if (this.cachedState.shoppingItems?.some((i) => i.id === row.id)) key = 'shoppingItems';
+    else if (this.cachedState.cleaningTasks?.some((i) => i.id === row.id)) key = 'cleaningTasks';
+    else if (this.cachedState.maintenanceTasks?.some((i) => i.id === row.id)) key = 'maintenanceTasks';
+    else if (this.cachedState.homeAreas?.some((i) => i.id === row.id)) key = 'homeAreas';
+    else if (this.cachedState.resetMissions?.some((i) => i.id === row.id)) key = 'resetMissions';
+    else if (row.record_type === 'shopping') key = 'shoppingItems';
+    else if (row.record_type === 'cleaning') key = 'cleaningTasks';
+    else if (row.record_type === 'maintenance') key = 'maintenanceTasks';
+    else if (row.record_type === 'area') key = 'homeAreas';
+
+    const currentList = [...((this.cachedState[key] || []) as any[])];
 
     if (eventType === 'DELETE') {
       this.notifyListeners(key, currentList.filter((item) => item.id !== row.id));
@@ -1308,6 +1615,50 @@ export class SupabaseDataService implements IDataService {
       eventType,
       entityId: row.id,
     });
+  }
+
+  private handleCustomizationsRealtime(payload: any): void {
+    const row = payload.new;
+    if (!row) return;
+
+    // Check if this was a recent local mutation from this device to prevent echo loop
+    const localTimestamp = this.recentLocalMutations.get(`customizations_${row.family_id}`);
+    if (localTimestamp && Date.now() - localTimestamp < 2500) {
+      return;
+    }
+
+    if (row.config) {
+      const mergedConfig = { ...this.cachedState.config, ...row.config };
+      this.cachedState.config = mergedConfig;
+      storageService.saveStateKey('config', mergedConfig);
+      this.notifyListeners('config', mergedConfig, {
+        table: 'app_customizations',
+        eventType: payload.eventType,
+        entityId: row.id,
+      });
+    }
+
+    if (row.theme_preferences) {
+      const mergedThemes = { ...this.cachedState.themePreferences, ...row.theme_preferences };
+      this.cachedState.themePreferences = mergedThemes;
+      storageService.saveStateKey('themePreferences', mergedThemes);
+      this.notifyListeners('themePreferences', mergedThemes, {
+        table: 'app_customizations',
+        eventType: payload.eventType,
+        entityId: row.id,
+      });
+    }
+
+    if (row.notification_preferences) {
+      const mergedNotifs = { ...this.cachedState.notificationPreferences, ...row.notification_preferences };
+      this.cachedState.notificationPreferences = mergedNotifs;
+      storageService.saveStateKey('notificationPreferences', mergedNotifs);
+      this.notifyListeners('notificationPreferences', mergedNotifs, {
+        table: 'app_customizations',
+        eventType: payload.eventType,
+        entityId: row.id,
+      });
+    }
   }
 
   private handleRewardRealtime(payload: any): void {
@@ -1446,7 +1797,7 @@ export class SupabaseDataService implements IDataService {
     }
 
     // Tasks
-    if (tasksRes.data && tasksRes.data.length > 0) {
+    if (tasksRes.data) {
       state.tasks = tasksRes.data.map((r: any) =>
         r.data && Object.keys(r.data).length > 0
           ? {
@@ -1473,7 +1824,7 @@ export class SupabaseDataService implements IDataService {
     }
 
     // Events
-    if (eventsRes.data && eventsRes.data.length > 0) {
+    if (eventsRes.data) {
       state.events = eventsRes.data.map((r: any) =>
         r.data && Object.keys(r.data).length > 0
           ? {
@@ -1500,7 +1851,7 @@ export class SupabaseDataService implements IDataService {
     }
 
     // Habits (Filtered by privacy in addition to RLS)
-    if (habitsRes.data && habitsRes.data.length > 0) {
+    if (habitsRes.data) {
       state.habits = habitsRes.data
         .filter((r: any) => !r.is_private || r.created_by_user_id === currentUserId)
         .map((r: any) =>
@@ -1538,7 +1889,7 @@ export class SupabaseDataService implements IDataService {
     }
 
     // Finances
-    if (expensesRes.data && expensesRes.data.length > 0) {
+    if (expensesRes.data) {
       state.expenses = expensesRes.data
         .filter((r: any) => r.scope !== 'personal' || r.created_by_user_id === currentUserId)
         .map((r: any) =>
@@ -1558,7 +1909,7 @@ export class SupabaseDataService implements IDataService {
         );
     }
 
-    if (incomesRes.data && incomesRes.data.length > 0) {
+    if (incomesRes.data) {
       state.incomes = incomesRes.data
         .filter((r: any) => r.scope !== 'personal' || r.created_by_user_id === currentUserId)
         .map((r: any) =>
@@ -1578,7 +1929,7 @@ export class SupabaseDataService implements IDataService {
         );
     }
 
-    if (billsRes.data && billsRes.data.length > 0) {
+    if (billsRes.data) {
       state.bills = billsRes.data.map((r: any) =>
         r.data && Object.keys(r.data).length > 0
           ? { ...r.data, id: r.id, status: r.status ?? r.data.status }
@@ -1597,7 +1948,7 @@ export class SupabaseDataService implements IDataService {
       );
     }
 
-    if (debtsRes.data && debtsRes.data.length > 0) {
+    if (debtsRes.data) {
       state.debts = debtsRes.data.map((r: any) =>
         r.data && Object.keys(r.data).length > 0
           ? { ...r.data, id: r.id, pendingBalance: Number(r.pending_balance ?? r.data.pendingBalance) }
@@ -1617,7 +1968,7 @@ export class SupabaseDataService implements IDataService {
       );
     }
 
-    if (budgetsRes.data && budgetsRes.data.length > 0) {
+    if (budgetsRes.data) {
       state.budgets = budgetsRes.data.map((r: any) => ({
         ...(r.data || {}),
         id: r.id,
@@ -1627,7 +1978,7 @@ export class SupabaseDataService implements IDataService {
       }));
     }
 
-    if (goalsRes.data && goalsRes.data.length > 0) {
+    if (goalsRes.data) {
       state.goals = goalsRes.data.map((r: any) => ({
         ...(r.data || {}),
         id: r.id,
@@ -1641,7 +1992,7 @@ export class SupabaseDataService implements IDataService {
     }
 
     // Health Records unpacking
-    if (healthRes.data && healthRes.data.length > 0) {
+    if (healthRes.data) {
       const appointments: MedicalAppointment[] = [];
       const medications: Medication[] = [];
       const doseLogs: MedicationDoseLog[] = [];
@@ -1657,36 +2008,48 @@ export class SupabaseDataService implements IDataService {
         else if (row.record_type === 'vaccine') vaccineRecords.push(item as VaccineRecord);
       }
 
-      if (appointments.length > 0) state.appointments = appointments;
-      if (medications.length > 0) state.medications = medications;
-      if (doseLogs.length > 0) state.doseLogs = doseLogs;
-      if (pediatricQueries.length > 0) state.pediatricQueries = pediatricQueries;
-      if (vaccineRecords.length > 0) state.vaccineRecords = vaccineRecords;
+      state.appointments = appointments;
+      state.medications = medications;
+      state.doseLogs = doseLogs;
+      state.pediatricQueries = pediatricQueries;
+      state.vaccineRecords = vaccineRecords;
     }
 
     // Home Records unpacking
-    if (homeRes.data && homeRes.data.length > 0) {
+    if (homeRes.data) {
       const shopping: ShoppingItem[] = [];
       const cleaning: CleaningTask[] = [];
       const maintenance: MaintenanceTask[] = [];
+      const areas: HomeArea[] = [];
       const reset: any[] = [];
+      let resetSession: FamilyResetSession | null = null;
 
       for (const row of homeRes.data) {
         const item = { ...row.data, id: row.id };
         if (row.record_type === 'shopping') shopping.push(item as ShoppingItem);
         else if (row.record_type === 'cleaning') cleaning.push(item as CleaningTask);
         else if (row.record_type === 'maintenance') maintenance.push(item as MaintenanceTask);
+        else if (row.record_type === 'area') areas.push(item as HomeArea);
         else if (row.record_type === 'reset_mission') reset.push(item);
+        else if (row.record_type === 'reset_session') resetSession = item as FamilyResetSession;
       }
 
-      if (shopping.length > 0) state.shoppingItems = shopping;
-      if (cleaning.length > 0) state.cleaningTasks = cleaning;
-      if (maintenance.length > 0) state.maintenanceTasks = maintenance;
-      if (reset.length > 0) state.resetMissions = reset;
+      state.shoppingItems = shopping;
+      state.cleaningTasks = cleaning;
+      state.maintenanceTasks = maintenance;
+      if (areas.length > 0) {
+        state.homeAreas = areas;
+      } else if (customRes.data?.config?.homeAreas && Array.isArray(customRes.data.config.homeAreas) && customRes.data.config.homeAreas.length > 0) {
+        state.homeAreas = customRes.data.config.homeAreas;
+      } else {
+        state.homeAreas = DEFAULT_HOME_AREAS;
+      }
+      state.resetMissions = reset;
+      state.resetSession = resetSession;
     }
 
     // Couple Records unpacking
-    if (coupleRes.data && coupleRes.data.length > 0) {
+    if (coupleRes.data) {
       const checkIns: CoupleCheckIn[] = [];
       const convs: CoupleConversation[] = [];
       const dates: CoupleDate[] = [];
@@ -1708,18 +2071,18 @@ export class SupabaseDataService implements IDataService {
         else if (row.item_type === 'memory') memories.push(item as CoupleMemory);
       }
 
-      if (checkIns.length > 0) state.coupleCheckIns = checkIns;
-      if (convs.length > 0) state.coupleConversations = convs;
-      if (dates.length > 0) state.coupleDates = dates;
-      if (gestures.length > 0) state.coupleGestures = gestures;
-      if (agreements.length > 0) state.coupleAgreements = agreements;
-      if (spiritual.length > 0) state.coupleSpiritualItems = spiritual;
-      if (cuqui.length > 0) state.cuquiTimeSessions = cuqui;
-      if (memories.length > 0) state.coupleMemories = memories;
+      state.coupleCheckIns = checkIns;
+      state.coupleConversations = convs;
+      state.coupleDates = dates;
+      state.coupleGestures = gestures;
+      state.coupleAgreements = agreements;
+      state.coupleSpiritualItems = spiritual;
+      state.cuquiTimeSessions = cuqui;
+      state.coupleMemories = memories;
     }
 
     // Rewards & Points
-    if (rewardsRes.data && rewardsRes.data.length > 0) {
+    if (rewardsRes.data) {
       state.rewards = rewardsRes.data.map((r: any) => ({
         ...(r.data || {}),
         id: r.id,
@@ -1731,7 +2094,7 @@ export class SupabaseDataService implements IDataService {
       }));
     }
 
-    if (pointsRes.data && pointsRes.data.length > 0) {
+    if (pointsRes.data) {
       state.pointsHistory = pointsRes.data.map((r: any) => ({
         ...(r.data || {}),
         id: r.id,
@@ -1978,6 +2341,7 @@ export class SupabaseDataService implements IDataService {
         ...initialShoppingItems.map((s) => ({ id: s.id, record_type: 'shopping', data: s })),
         ...initialCleaningTasks.map((c) => ({ id: c.id, record_type: 'cleaning', data: c })),
         ...initialMaintenanceTasks.map((m) => ({ id: m.id, record_type: 'maintenance', data: m })),
+        ...DEFAULT_HOME_AREAS.map((a) => ({ id: a.id, record_type: 'area', data: a })),
         ...initialResetMissions.map((r) => ({ id: r.id, record_type: 'reset_mission', data: r })),
       ];
       if (homeItems.length > 0) {

@@ -3,11 +3,11 @@ import { FamilyMember } from '../types/family';
 import { Task } from '../types/tasks';
 import { CalendarEvent } from '../types/calendar';
 import { MedicalAppointment, Medication, MedicationDoseLog, PediatricQuery, VaccineRecord } from '../types/health';
-import { ShoppingItem, CleaningTask, MaintenanceTask } from '../types/home';
+import { ShoppingItem, CleaningTask, MaintenanceTask, HomeArea, DEFAULT_HOME_AREAS } from '../types/home';
 import { Habit } from '../types/habits';
 import { Reward, PointsHistoryEntry } from '../types/rewards';
 import { Income, Expense, Bill, Debt, Budget, FinancialGoal } from '../types/finance';
-import { ResetMission } from '../types/reset';
+import { ResetMission, FamilyResetSession } from '../types/reset';
 import {
   CoupleCheckIn,
   CoupleConversation,
@@ -70,6 +70,7 @@ export interface FullAppState {
   shoppingItems: ShoppingItem[];
   cleaningTasks: CleaningTask[];
   maintenanceTasks: MaintenanceTask[];
+  homeAreas: HomeArea[];
   habits: Habit[];
   rewards: Reward[];
   pointsHistory: PointsHistoryEntry[];
@@ -80,6 +81,7 @@ export interface FullAppState {
   budgets: Budget[];
   goals: FinancialGoal[];
   resetMissions: ResetMission[];
+  resetSession?: FamilyResetSession | null;
   medications: Medication[];
   doseLogs: MedicationDoseLog[];
   pediatricQueries: PediatricQuery[];
@@ -141,6 +143,7 @@ export const storageService = {
       shoppingItems: getItem<ShoppingItem[]>('shoppingItems', initialShoppingItems),
       cleaningTasks: getItem<CleaningTask[]>('cleaningTasks', initialCleaningTasks),
       maintenanceTasks: getItem<MaintenanceTask[]>('maintenanceTasks', initialMaintenanceTasks),
+      homeAreas: getItem<HomeArea[]>('homeAreas', DEFAULT_HOME_AREAS),
       habits: getItem<Habit[]>('habits', initialHabits),
       rewards: getItem<Reward[]>('rewards', initialRewards),
       pointsHistory: getItem<PointsHistoryEntry[]>('pointsHistory', initialPointsHistory),
@@ -151,6 +154,7 @@ export const storageService = {
       budgets: getItem<Budget[]>('budgets', initialBudgets),
       goals: getItem<FinancialGoal[]>('goals', initialGoals),
       resetMissions: getItem<ResetMission[]>('resetMissions', initialResetMissions),
+      resetSession: getItem<FamilyResetSession | null>('resetSession', null),
       medications: getItem<Medication[]>('medications', initialMedications),
       doseLogs: getItem<MedicationDoseLog[]>('doseLogs', initialDoseLogs),
       pediatricQueries: getItem<PediatricQuery[]>('pediatricQueries', initialPediatricQueries),
@@ -183,6 +187,7 @@ export const storageService = {
       shoppingItems: initialShoppingItems,
       cleaningTasks: initialCleaningTasks,
       maintenanceTasks: initialMaintenanceTasks,
+      homeAreas: DEFAULT_HOME_AREAS,
       habits: initialHabits,
       rewards: initialRewards,
       pointsHistory: initialPointsHistory,
@@ -193,6 +198,7 @@ export const storageService = {
       budgets: initialBudgets,
       goals: initialGoals,
       resetMissions: initialResetMissions,
+      resetSession: null,
       medications: initialMedications,
       doseLogs: initialDoseLogs,
       pediatricQueries: initialPediatricQueries,
@@ -306,6 +312,7 @@ export const storageService = {
         shoppingItems: safeArray(data.shoppingItems, initialShoppingItems),
         cleaningTasks: safeArray(data.cleaningTasks, initialCleaningTasks),
         maintenanceTasks: safeArray(data.maintenanceTasks, initialMaintenanceTasks),
+        homeAreas: safeArray(data.homeAreas, DEFAULT_HOME_AREAS),
         habits: safeArray(data.habits, initialHabits),
         rewards: safeArray(data.rewards, initialRewards),
         pointsHistory: safeArray(data.pointsHistory, initialPointsHistory),
@@ -316,6 +323,7 @@ export const storageService = {
         budgets: safeArray(data.budgets, initialBudgets),
         goals: safeArray(data.goals, initialGoals),
         resetMissions: safeArray(data.resetMissions, initialResetMissions),
+        resetSession: data.resetSession || null,
         medications: safeArray(data.medications, initialMedications),
         doseLogs: safeArray(data.doseLogs, initialDoseLogs),
         pediatricQueries: safeArray(data.pediatricQueries, initialPediatricQueries),

@@ -4,11 +4,11 @@ import { FamilyMember, ActiveProfileId } from '../types/family';
 import { Task } from '../types/tasks';
 import { CalendarEvent } from '../types/calendar';
 import { MedicalAppointment, Medication, MedicationDoseLog, PediatricQuery, VaccineRecord } from '../types/health';
-import { ShoppingItem, CleaningTask, MaintenanceTask } from '../types/home';
+import { ShoppingItem, CleaningTask, MaintenanceTask, HomeArea, DEFAULT_HOME_AREAS } from '../types/home';
 import { Habit } from '../types/habits';
 import { Reward, PointsHistoryEntry } from '../types/rewards';
 import { Income, Expense, Bill, Debt, Budget, FinancialGoal } from '../types/finance';
-import { ResetMission } from '../types/reset';
+import { ResetMission, FamilyResetSession, ResetDurationUnit } from '../types/reset';
 import {
   CoupleCheckIn,
   CoupleConversation,
@@ -33,8 +33,14 @@ import {
   AppNotification,
 } from '../types/notifications';
 import { notificationService } from '../services/notificationService';
+import { outboxService, SyncStatus } from '../services/outboxService';
 
 interface FamilyContextType {
+  // Realtime & Outbox Synchronization Status
+  syncStatus: SyncStatus;
+  pendingSyncCount: number;
+  flushSyncOutbox: () => Promise<void>;
+
   // Navigation & Active Profile
   currentTab: ModuleKey;
   setCurrentTab: (tab: ModuleKey) => void;
@@ -56,6 +62,7 @@ interface FamilyContextType {
   members: FamilyMember[];
   addMember: (member: Omit<FamilyMember, 'id' | 'points'>) => void;
   updateMember: (id: string, updates: Partial<FamilyMember>) => void;
+  deleteMember: (id: string) => void;
 
   // Tasks
   tasks: Task[];
@@ -85,20 +92,36 @@ interface FamilyContextType {
   addPediatricQuery: (q: Omit<PediatricQuery, 'id' | 'createdAt'>) => void;
   togglePediatricQuery: (id: string) => void;
   deletePediatricQuery: (id: string) => void;
+  updatePediatricQuery: (id: string, updates: Partial<PediatricQuery>) => void;
   vaccineRecords: VaccineRecord[];
   toggleVaccineStatus: (id: string) => void;
   addVaccineRecord: (vac: Omit<VaccineRecord, 'id'>) => void;
+  updateVaccineRecord: (id: string, updates: Partial<VaccineRecord>) => void;
+  deleteVaccineRecord: (id: string) => void;
 
   // Home
   shoppingItems: ShoppingItem[];
   addShoppingItem: (item: Omit<ShoppingItem, 'id' | 'createdAt'>) => void;
+  updateShoppingItem: (id: string, updates: Partial<ShoppingItem>) => void;
   toggleShoppingItem: (id: string) => void;
   deleteShoppingItem: (id: string) => void;
   clearCompletedShopping: () => void;
   cleaningTasks: CleaningTask[];
+  addCleaningTask: (task: Omit<CleaningTask, 'id'>) => void;
+  updateCleaningTask: (id: string, updates: Partial<CleaningTask>) => void;
+  deleteCleaningTask: (id: string) => void;
   toggleCleaningTask: (id: string) => void;
+  togglePauseCleaningTask: (id: string) => void;
   maintenanceTasks: MaintenanceTask[];
+  addMaintenanceTask: (task: Omit<MaintenanceTask, 'id'>) => void;
+  updateMaintenanceTask: (id: string, updates: Partial<MaintenanceTask>) => void;
+  deleteMaintenanceTask: (id: string) => void;
   toggleMaintenanceTask: (id: string) => void;
+  togglePauseMaintenanceTask: (id: string) => void;
+  homeAreas: HomeArea[];
+  addHomeArea: (area: Omit<HomeArea, 'id'>) => void;
+  updateHomeArea: (id: string, updates: Partial<HomeArea>) => void;
+  deleteHomeArea: (id: string) => void;
 
   // Habits & Rewards
   habits: Habit[];
@@ -109,37 +132,66 @@ interface FamilyContextType {
   toggleHabitActive: (id: string) => void;
   rewards: Reward[];
   addReward: (reward: Omit<Reward, 'id'>) => void;
+  updateReward: (id: string, updates: Partial<Reward>) => void;
+  deleteReward: (id: string) => void;
   redeemReward: (rewardId: string, childId: string) => boolean;
   pointsHistory: PointsHistoryEntry[];
+  adjustMemberPoints: (childId: string, amount: number, reason: string) => void;
 
   // Finances (Adults)
   incomes: Income[];
   addIncome: (inc: Omit<Income, 'id'>) => void;
+  updateIncome: (id: string, updates: Partial<Income>) => void;
   deleteIncome: (id: string) => void;
   expenses: Expense[];
   addExpense: (exp: Omit<Expense, 'id'>) => void;
+  updateExpense: (id: string, updates: Partial<Expense>) => void;
   deleteExpense: (id: string) => void;
   bills: Bill[];
   addBill: (bill: Omit<Bill, 'id'>) => void;
+  updateBill: (id: string, updates: Partial<Bill>) => void;
   toggleBillPaid: (id: string) => void;
   deleteBill: (id: string) => void;
   debts: Debt[];
   addDebt: (debt: Omit<Debt, 'id'>) => void;
+  updateDebt: (id: string, updates: Partial<Debt>) => void;
   updateDebtBalance: (id: string, newBalance: number) => void;
+  deleteDebt: (id: string) => void;
   budgets: Budget[];
   updateBudget: (categoryKey: string, monthlyLimit: number) => void;
+  deleteBudget: (id: string) => void;
   goals: FinancialGoal[];
   addGoal: (goal: Omit<FinancialGoal, 'id'>) => void;
+  updateGoal: (id: string, updates: Partial<FinancialGoal>) => void;
+  deleteGoal: (id: string) => void;
   contributeToGoal: (goalId: string, amount: number) => void;
 
   // Family Reset
   resetMissions: ResetMission[];
   toggleResetMission: (id: string) => void;
   resetMissionsStatus: () => void;
+  resetSession: FamilyResetSession | null;
+  startResetSession: (params: {
+    durationValue: number;
+    durationUnit: ResetDurationUnit;
+    durationMinutes: number;
+    startedBy?: string;
+  }) => void;
+  pauseResetSession: () => void;
+  resumeResetSession: () => void;
+  updateResetDuration: (params: {
+    durationValue: number;
+    durationUnit: ResetDurationUnit;
+    durationMinutes: number;
+  }) => void;
+  finishResetSession: () => void;
+  cancelResetSession: () => void;
 
   // Couple Module (Mamá & Papá)
   coupleCheckIns: CoupleCheckIn[];
   addCoupleCheckIn: (checkIn: Omit<CoupleCheckIn, 'id' | 'createdAt'>) => void;
+  updateCoupleCheckIn: (id: string, updates: Partial<CoupleCheckIn>) => void;
+  deleteCoupleCheckIn: (id: string) => void;
   coupleConversations: CoupleConversation[];
   addCoupleConversation: (conv: Omit<CoupleConversation, 'id'>) => void;
   updateCoupleConversation: (id: string, updates: Partial<CoupleConversation>) => void;
@@ -150,12 +202,16 @@ interface FamilyContextType {
   deleteCoupleDate: (id: string) => void;
   coupleGestures: CoupleGesture[];
   recordCoupleGesture: (gestureId: string, performedBy?: string) => void;
+  addCoupleGesture: (gesture: Omit<CoupleGesture, 'id' | 'completedCount'>) => void;
+  updateCoupleGesture: (id: string, updates: Partial<CoupleGesture>) => void;
+  deleteCoupleGesture: (id: string) => void;
   coupleAgreements: CoupleAgreement[];
   addCoupleAgreement: (agr: Omit<CoupleAgreement, 'id'>) => void;
   updateCoupleAgreement: (id: string, updates: Partial<CoupleAgreement>) => void;
   deleteCoupleAgreement: (id: string) => void;
   coupleSpiritualItems: CoupleSpiritualItem[];
   addCoupleSpiritualItem: (item: Omit<CoupleSpiritualItem, 'id'>) => void;
+  updateCoupleSpiritualItem: (id: string, updates: Partial<CoupleSpiritualItem>) => void;
   toggleCoupleSpiritualItem: (id: string) => void;
   deleteCoupleSpiritualItem: (id: string) => void;
   cuquiTimeSessions: CuquiTimeSession[];
@@ -164,6 +220,7 @@ interface FamilyContextType {
   deleteCuquiTimeSession: (id: string) => void;
   coupleMemories: CoupleMemory[];
   addCoupleMemory: (mem: Omit<CoupleMemory, 'id'>) => void;
+  updateCoupleMemory: (id: string, updates: Partial<CoupleMemory>) => void;
   deleteCoupleMemory: (id: string) => void;
 
   // Modals & System
@@ -233,12 +290,39 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [activeNotifications, setActiveNotifications] = useState<AppNotification[]>([]);
 
   // Auth & Co-administration (Phase 2)
+  const getInitialInviteToken = () => {
+    if (typeof window === 'undefined') return null;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('vincular') || params.get('token') || null;
+  };
+
+  const initialInviteToken = getInitialInviteToken();
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authModalMode, setAuthModalMode] = useState<'signin' | 'signup' | 'reset' | 'claim_invite'>('signin');
-  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const [authModalMode, setAuthModalMode] = useState<'signin' | 'signup' | 'reset' | 'claim_invite'>(
+    initialInviteToken ? 'claim_invite' : 'signin'
+  );
+  const [inviteToken, setInviteToken] = useState<string | null>(initialInviteToken);
   const [linkCoAdminModalOpen, setLinkCoAdminModalOpen] = useState(false);
   const [authenticatedUser, setAuthenticatedUser] = useState<AuthUser | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+
+  // Sync status & Outbox tracking
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(() => outboxService.getStatus());
+  const [pendingSyncCount, setPendingSyncCount] = useState<number>(() => outboxService.getPendingCount());
+
+  useEffect(() => {
+    const unsub = outboxService.onStatusChange((status, count) => {
+      setSyncStatus(status);
+      setPendingSyncCount(count);
+    });
+    return unsub;
+  }, []);
+
+  const flushSyncOutbox = async () => {
+    if (dataService.flushOutbox) {
+      await dataService.flushOutbox();
+    }
+  };
 
   const isSyncingFromRemoteRef = useRef(false);
 
@@ -449,19 +533,6 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   }, [authenticatedUser, activeProfileId, state.notificationPreferences]);
 
-  // Detect URL parameter ?vincular=... on startup
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const token = params.get('vincular') || params.get('token');
-      if (token) {
-        setInviteToken(token);
-        setAuthModalMode('claim_invite');
-        setAuthModalOpen(true);
-      }
-    }
-  }, []);
-
   const openAuthModal = (mode: 'signin' | 'signup' | 'reset' | 'claim_invite' = 'signin', token?: string) => {
     setAuthModalMode(mode);
     if (token) setInviteToken(token);
@@ -600,6 +671,43 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     if (isSyncingFromRemoteRef.current) return;
     dataService.saveStateKey('resetMissions', state.resetMissions);
   }, [state.resetMissions]);
+
+  useEffect(() => {
+    if (isSyncingFromRemoteRef.current) return;
+    if (state.resetSession !== undefined) {
+      dataService.saveStateKey('resetSession', state.resetSession);
+    }
+  }, [state.resetSession]);
+
+  // Heartbeat to automatically complete active Family Reset when endsAt timestamp is reached
+  useEffect(() => {
+    if (state.resetSession?.status !== 'active' || !state.resetSession.endsAt) return;
+
+    const checkExpiration = () => {
+      const now = Date.now();
+      const end = new Date(state.resetSession!.endsAt!).getTime();
+      const diffSec = Math.floor((end - now) / 1000);
+
+      if (diffSec <= 0) {
+        setState((prev) => {
+          if (!prev.resetSession || prev.resetSession.status !== 'active') return prev;
+          const completedSession: FamilyResetSession = {
+            ...prev.resetSession,
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+            remainingSeconds: 0,
+            lastUpdated: new Date().toISOString(),
+          };
+          dataService.saveStateKey('resetSession', completedSession);
+          return { ...prev, resetSession: completedSession };
+        });
+      }
+    };
+
+    checkExpiration();
+    const interval = setInterval(checkExpiration, 1000);
+    return () => clearInterval(interval);
+  }, [state.resetSession?.status, state.resetSession?.endsAt]);
 
   useEffect(() => {
     if (isSyncingFromRemoteRef.current) return;
@@ -826,6 +934,31 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }));
   };
 
+  const deleteMember = (id: string) => {
+    const memberToDelete = state.members.find((m) => m.id === id);
+    if (!memberToDelete) return;
+
+    // Safeguard: Do not allow deleting the last remaining adult
+    if (memberToDelete.role === 'adult') {
+      const remainingAdults = state.members.filter((m) => m.role === 'adult' && m.id !== id);
+      if (remainingAdults.length === 0) {
+        console.warn('No es posible eliminar al único adulto de la familia');
+        return;
+      }
+    }
+
+    // If active profile is the deleted member, fallback to another adult or 'family'
+    if (activeProfileId === id) {
+      const nextAdult = state.members.find((m) => m.role === 'adult' && m.id !== id);
+      setActiveProfileId(nextAdult ? nextAdult.id : 'family');
+    }
+
+    setState((prev) => ({
+      ...prev,
+      members: prev.members.filter((m) => m.id !== id),
+    }));
+  };
+
   // Tasks
   const addTask = (taskData: Omit<Task, 'id' | 'createdAt'>) => {
     const id = 't_' + Date.now();
@@ -974,6 +1107,13 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }));
   };
 
+  const updatePediatricQuery = (id: string, updates: Partial<PediatricQuery>) => {
+    setState((prev) => ({
+      ...prev,
+      pediatricQueries: prev.pediatricQueries.map((q) => (q.id === id ? { ...q, ...updates } : q)),
+    }));
+  };
+
   const toggleVaccineStatus = (id: string) => {
     setState((prev) => ({
       ...prev,
@@ -996,6 +1136,20 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setState((prev) => ({ ...prev, vaccineRecords: [...prev.vaccineRecords, { ...vacData, id }] }));
   };
 
+  const updateVaccineRecord = (id: string, updates: Partial<VaccineRecord>) => {
+    setState((prev) => ({
+      ...prev,
+      vaccineRecords: prev.vaccineRecords.map((v) => (v.id === id ? { ...v, ...updates } : v)),
+    }));
+  };
+
+  const deleteVaccineRecord = (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      vaccineRecords: prev.vaccineRecords.filter((v) => v.id !== id),
+    }));
+  };
+
   // Home (Shopping, Cleaning, Maintenance)
   const addShoppingItem = (itemData: Omit<ShoppingItem, 'id' | 'createdAt'>) => {
     const id = 's_' + Date.now();
@@ -1005,6 +1159,13 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       createdAt: getTodayString(),
     };
     setState((prev) => ({ ...prev, shoppingItems: [newItem, ...prev.shoppingItems] }));
+  };
+
+  const updateShoppingItem = (id: string, updates: Partial<ShoppingItem>) => {
+    setState((prev) => ({
+      ...prev,
+      shoppingItems: prev.shoppingItems.map((s) => (s.id === id ? { ...s, ...updates } : s)),
+    }));
   };
 
   const toggleShoppingItem = (id: string) => {
@@ -1030,12 +1191,65 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }));
   };
 
+  const addCleaningTask = (taskData: Omit<CleaningTask, 'id'>) => {
+    const id = 'clean_' + Date.now();
+    setState((prev) => ({
+      ...prev,
+      cleaningTasks: [...prev.cleaningTasks, { ...taskData, id }],
+    }));
+  };
+
+  const updateCleaningTask = (id: string, updates: Partial<CleaningTask>) => {
+    setState((prev) => ({
+      ...prev,
+      cleaningTasks: prev.cleaningTasks.map((c) => (c.id === id ? { ...c, ...updates } : c)),
+    }));
+  };
+
+  const deleteCleaningTask = (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      cleaningTasks: prev.cleaningTasks.filter((c) => c.id !== id),
+    }));
+  };
+
   const toggleCleaningTask = (id: string) => {
     setState((prev) => ({
       ...prev,
       cleaningTasks: prev.cleaningTasks.map((c) =>
         c.id === id ? { ...c, completedToday: !c.completedToday } : c
       ),
+    }));
+  };
+
+  const togglePauseCleaningTask = (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      cleaningTasks: prev.cleaningTasks.map((c) =>
+        c.id === id ? { ...c, isPaused: !c.isPaused } : c
+      ),
+    }));
+  };
+
+  const addMaintenanceTask = (taskData: Omit<MaintenanceTask, 'id'>) => {
+    const id = 'maint_' + Date.now();
+    setState((prev) => ({
+      ...prev,
+      maintenanceTasks: [...prev.maintenanceTasks, { ...taskData, id }],
+    }));
+  };
+
+  const updateMaintenanceTask = (id: string, updates: Partial<MaintenanceTask>) => {
+    setState((prev) => ({
+      ...prev,
+      maintenanceTasks: prev.maintenanceTasks.map((m) => (m.id === id ? { ...m, ...updates } : m)),
+    }));
+  };
+
+  const deleteMaintenanceTask = (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      maintenanceTasks: prev.maintenanceTasks.filter((m) => m.id !== id),
     }));
   };
 
@@ -1046,6 +1260,47 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         m.id === id ? { ...m, completed: !m.completed } : m
       ),
     }));
+  };
+
+  const togglePauseMaintenanceTask = (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      maintenanceTasks: prev.maintenanceTasks.map((m) =>
+        m.id === id ? { ...m, isPaused: !m.isPaused } : m
+      ),
+    }));
+  };
+
+  const addHomeArea = (areaData: Omit<HomeArea, 'id'>) => {
+    const id = 'area_' + Date.now();
+    setState((prev) => ({
+      ...prev,
+      homeAreas: [...(prev.homeAreas || DEFAULT_HOME_AREAS), { ...areaData, id }],
+    }));
+  };
+
+  const updateHomeArea = (id: string, updates: Partial<HomeArea>) => {
+    setState((prev) => ({
+      ...prev,
+      homeAreas: (prev.homeAreas || DEFAULT_HOME_AREAS).map((a) =>
+        a.id === id ? { ...a, ...updates } : a
+      ),
+    }));
+  };
+
+  const deleteHomeArea = (id: string) => {
+    setState((prev) => {
+      const currentAreas = prev.homeAreas || DEFAULT_HOME_AREAS;
+      const target = currentAreas.find((a) => a.id === id);
+      if (target?.isSystem) return prev;
+      return {
+        ...prev,
+        cleaningTasks: prev.cleaningTasks.map((c) =>
+          c.areaId === id || c.area === id ? { ...c, areaId: 'area_general', area: 'area_general' } : c
+        ),
+        homeAreas: currentAreas.filter((a) => a.id !== id),
+      };
+    });
   };
 
   // Habits & Rewards
@@ -1193,6 +1448,20 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }));
   };
 
+  const updateReward = (id: string, updates: Partial<Reward>) => {
+    setState((prev) => ({
+      ...prev,
+      rewards: prev.rewards.map((r) => (r.id === id ? { ...r, ...updates } : r)),
+    }));
+  };
+
+  const deleteReward = (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      rewards: prev.rewards.filter((r) => r.id !== id),
+    }));
+  };
+
   const redeemReward = (rewardId: string, childId: string): boolean => {
     const reward = state.rewards.find((r) => r.id === rewardId);
     const child = state.members.find((m) => m.id === childId);
@@ -1226,10 +1495,44 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     return true;
   };
 
+  const adjustMemberPoints = (childId: string, amount: number, reason: string) => {
+    setState((prev) => {
+      const child = prev.members.find((m) => m.id === childId);
+      if (!child) return prev;
+
+      const newPoints = Math.max(0, child.points + amount);
+      const updatedMembers = prev.members.map((m) =>
+        m.id === childId ? { ...m, points: newPoints } : m
+      );
+
+      const newHistoryEntry: PointsHistoryEntry = {
+        id: 'ph_' + Date.now(),
+        childId,
+        childName: child.name,
+        points: amount,
+        description: reason || (amount >= 0 ? 'Ajuste manual (+)' : 'Ajuste manual (-)'),
+        date: getTodayString(),
+      };
+
+      return {
+        ...prev,
+        members: updatedMembers,
+        pointsHistory: [newHistoryEntry, ...prev.pointsHistory],
+      };
+    });
+  };
+
   // Finances
   const addIncome = (incData: Omit<Income, 'id'>) => {
     const id = 'inc_' + Date.now();
     setState((prev) => ({ ...prev, incomes: [{ ...incData, id }, ...prev.incomes] }));
+  };
+
+  const updateIncome = (id: string, updates: Partial<Income>) => {
+    setState((prev) => ({
+      ...prev,
+      incomes: prev.incomes.map((i) => (i.id === id ? { ...i, ...updates } : i)),
+    }));
   };
 
   const deleteIncome = (id: string) => {
@@ -1241,6 +1544,13 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setState((prev) => ({ ...prev, expenses: [{ ...expData, id }, ...prev.expenses] }));
   };
 
+  const updateExpense = (id: string, updates: Partial<Expense>) => {
+    setState((prev) => ({
+      ...prev,
+      expenses: prev.expenses.map((e) => (e.id === id ? { ...e, ...updates } : e)),
+    }));
+  };
+
   const deleteExpense = (id: string) => {
     setState((prev) => ({ ...prev, expenses: prev.expenses.filter((e) => e.id !== id) }));
   };
@@ -1248,6 +1558,13 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const addBill = (billData: Omit<Bill, 'id'>) => {
     const id = 'bill_' + Date.now();
     setState((prev) => ({ ...prev, bills: [...prev.bills, { ...billData, id }] }));
+  };
+
+  const updateBill = (id: string, updates: Partial<Bill>) => {
+    setState((prev) => ({
+      ...prev,
+      bills: prev.bills.map((b) => (b.id === id ? { ...b, ...updates } : b)),
+    }));
   };
 
   const toggleBillPaid = (id: string) => {
@@ -1276,10 +1593,24 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setState((prev) => ({ ...prev, debts: [...prev.debts, { ...debtData, id }] }));
   };
 
+  const updateDebt = (id: string, updates: Partial<Debt>) => {
+    setState((prev) => ({
+      ...prev,
+      debts: prev.debts.map((d) => (d.id === id ? { ...d, ...updates } : d)),
+    }));
+  };
+
   const updateDebtBalance = (id: string, newBalance: number) => {
     setState((prev) => ({
       ...prev,
       debts: prev.debts.map((d) => (d.id === id ? { ...d, pendingBalance: Math.max(0, newBalance) } : d)),
+    }));
+  };
+
+  const deleteDebt = (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      debts: prev.debts.filter((d) => d.id !== id),
     }));
   };
 
@@ -1298,15 +1629,36 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         ...prev,
         budgets: [
           ...prev.budgets,
-          { id: 'b_' + Date.now(), categoryKey, monthlyLimit, month: getTodayString().substring(0, 7) },
+          { id: 'b_' + categoryKey, categoryKey, monthlyLimit, month: getTodayString().substring(0, 7) },
         ],
       };
     });
   };
 
+  const deleteBudget = (idOrCategoryKey: string) => {
+    setState((prev) => ({
+      ...prev,
+      budgets: prev.budgets.filter((b) => b.id !== idOrCategoryKey && b.categoryKey !== idOrCategoryKey),
+    }));
+  };
+
   const addGoal = (goalData: Omit<FinancialGoal, 'id'>) => {
     const id = 'goal_' + Date.now();
     setState((prev) => ({ ...prev, goals: [...prev.goals, { ...goalData, id }] }));
+  };
+
+  const updateGoal = (id: string, updates: Partial<FinancialGoal>) => {
+    setState((prev) => ({
+      ...prev,
+      goals: prev.goals.map((g) => (g.id === id ? { ...g, ...updates } : g)),
+    }));
+  };
+
+  const deleteGoal = (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      goals: prev.goals.filter((g) => g.id !== id),
+    }));
   };
 
   const contributeToGoal = (goalId: string, amount: number) => {
@@ -1335,6 +1687,136 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }));
   };
 
+  const startResetSession = (params: {
+    durationValue: number;
+    durationUnit: ResetDurationUnit;
+    durationMinutes: number;
+    startedBy?: string;
+  }) => {
+    const now = new Date();
+    const totalSeconds = params.durationMinutes * 60;
+    const endsAt = new Date(now.getTime() + totalSeconds * 1000).toISOString();
+
+    const session: FamilyResetSession = {
+      id: 'current_reset_session',
+      startedAt: now.toISOString(),
+      endsAt,
+      durationValue: params.durationValue,
+      durationUnit: params.durationUnit,
+      durationMinutes: params.durationMinutes,
+      remainingSeconds: totalSeconds,
+      status: 'active',
+      startedBy: params.startedBy || (state.members.find((m) => m.id === activeProfileId)?.name || 'Familia'),
+      lastUpdated: now.toISOString(),
+    };
+
+    setState((prev) => ({ ...prev, resetSession: session }));
+    dataService.saveStateKey('resetSession', session);
+  };
+
+  const pauseResetSession = () => {
+    setState((prev) => {
+      if (!prev.resetSession || prev.resetSession.status !== 'active') return prev;
+      const now = Date.now();
+      const end = prev.resetSession.endsAt ? new Date(prev.resetSession.endsAt).getTime() : now;
+      const currentRemaining = Math.max(0, Math.floor((end - now) / 1000));
+      const updated: FamilyResetSession = {
+        ...prev.resetSession,
+        status: 'paused',
+        remainingSeconds: currentRemaining,
+        pausedAt: new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+      };
+      dataService.saveStateKey('resetSession', updated);
+      return { ...prev, resetSession: updated };
+    });
+  };
+
+  const resumeResetSession = () => {
+    setState((prev) => {
+      if (!prev.resetSession || prev.resetSession.status !== 'paused') return prev;
+      const now = Date.now();
+      const newEndsAt = new Date(now + prev.resetSession.remainingSeconds * 1000).toISOString();
+      const updated: FamilyResetSession = {
+        ...prev.resetSession,
+        status: 'active',
+        endsAt: newEndsAt,
+        pausedAt: undefined,
+        lastUpdated: new Date().toISOString(),
+      };
+      dataService.saveStateKey('resetSession', updated);
+      return { ...prev, resetSession: updated };
+    });
+  };
+
+  const updateResetDuration = (params: {
+    durationValue: number;
+    durationUnit: ResetDurationUnit;
+    durationMinutes: number;
+  }) => {
+    setState((prev) => {
+      if (!prev.resetSession) return prev;
+      const newTotalSeconds = params.durationMinutes * 60;
+      const now = Date.now();
+      let newEndsAt: string | undefined = undefined;
+      let newRemaining = newTotalSeconds;
+
+      if (prev.resetSession.status === 'active') {
+        const startedMs = prev.resetSession.startedAt ? new Date(prev.resetSession.startedAt).getTime() : now;
+        const elapsedSec = Math.max(0, Math.floor((now - startedMs) / 1000));
+        const remainingFromStart = Math.max(60, newTotalSeconds - elapsedSec);
+        newRemaining = remainingFromStart;
+        newEndsAt = new Date(now + remainingFromStart * 1000).toISOString();
+      } else if (prev.resetSession.status === 'paused') {
+        newRemaining = newTotalSeconds;
+        newEndsAt = new Date(now + newTotalSeconds * 1000).toISOString();
+      }
+
+      const updated: FamilyResetSession = {
+        ...prev.resetSession,
+        durationValue: params.durationValue,
+        durationUnit: params.durationUnit,
+        durationMinutes: params.durationMinutes,
+        remainingSeconds: newRemaining,
+        endsAt: newEndsAt,
+        lastUpdated: new Date().toISOString(),
+      };
+      dataService.saveStateKey('resetSession', updated);
+      return { ...prev, resetSession: updated };
+    });
+  };
+
+  const finishResetSession = () => {
+    setState((prev) => {
+      if (!prev.resetSession) return prev;
+      const updated: FamilyResetSession = {
+        ...prev.resetSession,
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+        remainingSeconds: 0,
+        lastUpdated: new Date().toISOString(),
+      };
+      dataService.saveStateKey('resetSession', updated);
+      return { ...prev, resetSession: updated };
+    });
+  };
+
+  const cancelResetSession = () => {
+    setState((prev) => {
+      const updated: FamilyResetSession = {
+        id: 'current_reset_session',
+        durationValue: 30,
+        durationUnit: 'minutes',
+        durationMinutes: 30,
+        remainingSeconds: 30 * 60,
+        status: 'idle',
+        lastUpdated: new Date().toISOString(),
+      };
+      dataService.saveStateKey('resetSession', updated);
+      return { ...prev, resetSession: updated };
+    });
+  };
+
   // Couple Handlers (Mamá & Papá)
   const addCoupleCheckIn = (checkInData: Omit<CoupleCheckIn, 'id' | 'createdAt'>) => {
     const id = 'chk_' + Date.now();
@@ -1343,6 +1825,20 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setState((prev) => ({
       ...prev,
       coupleCheckIns: [newCheckIn, ...prev.coupleCheckIns],
+    }));
+  };
+
+  const updateCoupleCheckIn = (id: string, updates: Partial<CoupleCheckIn>) => {
+    setState((prev) => ({
+      ...prev,
+      coupleCheckIns: prev.coupleCheckIns.map((c) => (c.id === id ? { ...c, ...updates } : c)),
+    }));
+  };
+
+  const deleteCoupleCheckIn = (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      coupleCheckIns: prev.coupleCheckIns.filter((c) => c.id !== id),
     }));
   };
 
@@ -1418,12 +1914,34 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         g.id === gestureId
           ? {
               ...g,
-              completedCount: g.completedCount + 1,
+              completedCount: (g.completedCount || 0) + 1,
               lastDoneDate: getTodayString(),
               lastDoneBy: performedBy || g.lastDoneBy,
             }
           : g
       ),
+    }));
+  };
+
+  const addCoupleGesture = (gestureData: Omit<CoupleGesture, 'id' | 'completedCount'>) => {
+    const id = 'gst_' + Date.now();
+    setState((prev) => ({
+      ...prev,
+      coupleGestures: [...prev.coupleGestures, { ...gestureData, id, completedCount: 0 }],
+    }));
+  };
+
+  const updateCoupleGesture = (id: string, updates: Partial<CoupleGesture>) => {
+    setState((prev) => ({
+      ...prev,
+      coupleGestures: prev.coupleGestures.map((g) => (g.id === id ? { ...g, ...updates } : g)),
+    }));
+  };
+
+  const deleteCoupleGesture = (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      coupleGestures: prev.coupleGestures.filter((g) => g.id !== id),
     }));
   };
 
@@ -1454,6 +1972,13 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setState((prev) => ({
       ...prev,
       coupleSpiritualItems: [{ ...itemData, id }, ...prev.coupleSpiritualItems],
+    }));
+  };
+
+  const updateCoupleSpiritualItem = (id: string, updates: Partial<CoupleSpiritualItem>) => {
+    setState((prev) => ({
+      ...prev,
+      coupleSpiritualItems: prev.coupleSpiritualItems.map((s) => (s.id === id ? { ...s, ...updates } : s)),
     }));
   };
 
@@ -1504,6 +2029,13 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setState((prev) => ({
       ...prev,
       coupleMemories: [{ ...memData, id }, ...prev.coupleMemories],
+    }));
+  };
+
+  const updateCoupleMemory = (id: string, updates: Partial<CoupleMemory>) => {
+    setState((prev) => ({
+      ...prev,
+      coupleMemories: prev.coupleMemories.map((m) => (m.id === id ? { ...m, ...updates } : m)),
     }));
   };
 
@@ -1670,6 +2202,7 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         members: state.members,
         addMember,
         updateMember,
+        deleteMember,
         tasks: state.tasks,
         addTask,
         updateTask,
@@ -1693,18 +2226,34 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         addPediatricQuery,
         togglePediatricQuery,
         deletePediatricQuery,
+        updatePediatricQuery,
         vaccineRecords: state.vaccineRecords,
         toggleVaccineStatus,
         addVaccineRecord,
+        updateVaccineRecord,
+        deleteVaccineRecord,
         shoppingItems: state.shoppingItems,
         addShoppingItem,
+        updateShoppingItem,
         toggleShoppingItem,
         deleteShoppingItem,
         clearCompletedShopping,
         cleaningTasks: state.cleaningTasks,
+        addCleaningTask,
+        updateCleaningTask,
+        deleteCleaningTask,
         toggleCleaningTask,
+        togglePauseCleaningTask,
         maintenanceTasks: state.maintenanceTasks,
+        addMaintenanceTask,
+        updateMaintenanceTask,
+        deleteMaintenanceTask,
         toggleMaintenanceTask,
+        togglePauseMaintenanceTask,
+        homeAreas: state.homeAreas || DEFAULT_HOME_AREAS,
+        addHomeArea,
+        updateHomeArea,
+        deleteHomeArea,
         habits: state.habits,
         toggleHabitForToday,
         addHabit,
@@ -1713,31 +2262,51 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         toggleHabitActive,
         rewards: state.rewards,
         addReward,
+        updateReward,
+        deleteReward,
         redeemReward,
         pointsHistory: state.pointsHistory,
+        adjustMemberPoints,
         incomes: state.incomes,
         addIncome,
+        updateIncome,
         deleteIncome,
         expenses: state.expenses,
         addExpense,
+        updateExpense,
         deleteExpense,
         bills: state.bills,
         addBill,
+        updateBill,
         toggleBillPaid,
         deleteBill,
         debts: state.debts,
         addDebt,
+        updateDebt,
         updateDebtBalance,
+        deleteDebt,
         budgets: state.budgets,
         updateBudget,
+        deleteBudget,
         goals: state.goals,
         addGoal,
+        updateGoal,
+        deleteGoal,
         contributeToGoal,
         resetMissions: state.resetMissions,
         toggleResetMission,
         resetMissionsStatus,
+        resetSession: state.resetSession || null,
+        startResetSession,
+        pauseResetSession,
+        resumeResetSession,
+        updateResetDuration,
+        finishResetSession,
+        cancelResetSession,
         coupleCheckIns: state.coupleCheckIns,
         addCoupleCheckIn,
+        updateCoupleCheckIn,
+        deleteCoupleCheckIn,
         coupleConversations: state.coupleConversations,
         addCoupleConversation,
         updateCoupleConversation,
@@ -1748,12 +2317,16 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         deleteCoupleDate,
         coupleGestures: state.coupleGestures,
         recordCoupleGesture,
+        addCoupleGesture,
+        updateCoupleGesture,
+        deleteCoupleGesture,
         coupleAgreements: state.coupleAgreements,
         addCoupleAgreement,
         updateCoupleAgreement,
         deleteCoupleAgreement,
         coupleSpiritualItems: state.coupleSpiritualItems,
         addCoupleSpiritualItem,
+        updateCoupleSpiritualItem,
         toggleCoupleSpiritualItem,
         deleteCoupleSpiritualItem,
         cuquiTimeSessions: state.cuquiTimeSessions,
@@ -1762,6 +2335,7 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         deleteCuquiTimeSession,
         coupleMemories: state.coupleMemories,
         addCoupleMemory,
+        updateCoupleMemory,
         deleteCoupleMemory,
         quickActionModalOpen,
         setQuickActionModalOpen,
@@ -1791,6 +2365,9 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         isAuthLoading,
         authenticatedUser,
         handleAuthSuccess,
+        syncStatus,
+        pendingSyncCount,
+        flushSyncOutbox,
         reminders: state.reminders,
         addReminder,
         updateReminder,
@@ -1810,6 +2387,7 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   );
 };
 
+// eslint-disable-next-line react/only-export-components
 export const useFamily = () => {
   const context = useContext(FamilyContext);
   if (!context) {

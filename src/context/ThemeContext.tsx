@@ -42,14 +42,16 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
   activeRole = 'adult',
 }) => {
   const [memberId, setMemberId] = useState<string>(activeProfileId);
+  const [prevActiveProfileId, setPrevActiveProfileId] = useState<string>(activeProfileId);
   const [preferencesVersion, setPreferencesVersion] = useState<number>(0);
   const [previewPreference, setPreviewPreference] = useState<ProfileThemePreference | null>(null);
 
   // Sync internal memberId whenever activeProfileId prop changes
-  useEffect(() => {
+  if (activeProfileId !== prevActiveProfileId) {
+    setPrevActiveProfileId(activeProfileId);
     setMemberId(activeProfileId);
-    setPreviewPreference(null); // Clear preview when switching profiles
-  }, [activeProfileId]);
+    setPreviewPreference(null);
+  }
 
   // Current preference for the active member
   const currentPreference = useMemo(() => {
@@ -190,6 +192,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
   );
 };
 
+// eslint-disable-next-line react/only-export-components
 export const useTheme = (): ThemeContextType => {
   const context = useContext(ThemeContext);
   if (!context) {

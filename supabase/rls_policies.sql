@@ -57,6 +57,7 @@ alter table rewards enable row level security;
 alter table points_history enable row level security;
 alter table notifications enable row level security;
 alter table app_customizations enable row level security;
+alter table push_subscriptions enable row level security;
 
 -- ------------------------------------------------------------------------------
 -- 3. POLÍTICAS PARA FAMILIAS Y PERFILES
@@ -76,9 +77,12 @@ create policy "profiles_select_family" on profiles
 create policy "profiles_update_self" on profiles
   for update using (id = auth.uid());
 
--- co_admin_invites
-create policy "co_admin_invites_manage_family" on co_admin_invites
-  for all using (family_id = get_auth_family_id() and is_family_adult());
+-- co_admin_invites (Solo lectura para adultos; mutaciones estrictamente por RPCs)
+create policy "co_admin_invites_select_adults" on co_admin_invites
+  for select using (family_id = get_auth_family_id() and is_family_adult());
+
+revoke insert, update, delete on co_admin_invites from authenticated, anon, public;
+grant select on co_admin_invites to authenticated;
 
 -- family_members
 create policy "family_members_select_family" on family_members
@@ -277,3 +281,23 @@ create policy "notifications_delete_target" on notifications
 -- ------------------------------------------------------------------------------
 create policy "app_customizations_all" on app_customizations
   for all using (family_id = get_auth_family_id());
+
+-- ------------------------------------------------------------------------------
+-- 10. POLÍTICAS PARA SUSCRIPCIONES PUSH WEB / PWA
+-- ------------------------------------------------------------------------------
+-- Cada usuario solo puede ver, registrar, modificar y eliminar sus propios dispositivos (endpoints).
+create policy "push_subscriptions_select_self" on push_subscriptions
+  for select using (user_id = auth.uid());
+
+create policy "push_subscriptions_insert_self" on push_subscriptions
+  for insert with check (
+    user_id = auth.uid() 
+    and family_id = get_auth_family_id()
+  );
+
+create policy "push_subscriptions_update_self" on push_subscriptions
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+create policy "push_subscriptions_delete_self" on push_subscriptions
+  for delete using (user_id = auth.uid());
+

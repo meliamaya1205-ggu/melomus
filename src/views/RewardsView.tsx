@@ -14,14 +14,20 @@ import {
   Smile,
   Gift,
   CheckCircle,
+  Edit2,
+  Trash2,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 export const RewardsView: React.FC = () => {
   const {
     rewards,
     addReward,
+    updateReward,
+    deleteReward,
     redeemReward,
     pointsHistory,
+    adjustMemberPoints,
     members,
     config,
     isAdultView,
@@ -32,12 +38,20 @@ export const RewardsView: React.FC = () => {
     childrenMembers[0]?.id || 'annie'
   );
 
-  // New reward modal
+  // New / Edit reward modal
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingRewardId, setEditingRewardId] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newCost, setNewCost] = useState<number>(15);
   const [newCategory, setNewCategory] = useState<RewardCategory>('activity');
+
+  // Points adjustment modal state (Adults only)
+  const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
+  const [adjustChildId, setAdjustChildId] = useState<string>(childrenMembers[0]?.id || 'annie');
+  const [adjustType, setAdjustType] = useState<'add' | 'subtract'>('add');
+  const [adjustAmount, setAdjustAmount] = useState<number>(5);
+  const [adjustReason, setAdjustReason] = useState<string>('');
 
   // Success message state
   const [redemptionSuccess, setRedemptionSuccess] = useState<string | null>(null);
@@ -59,21 +73,93 @@ export const RewardsView: React.FC = () => {
     }
   };
 
+  const openNewRewardModal = () => {
+    setEditingRewardId(null);
+    setNewTitle('');
+    setNewDesc('');
+    setNewCost(15);
+    setNewCategory('activity');
+    setIsModalOpen(true);
+  };
+
+  const openEditRewardModal = (reward: Reward) => {
+    setEditingRewardId(reward.id);
+    setNewTitle(reward.title);
+    setNewDesc(reward.description || '');
+    setNewCost(reward.pointsCost);
+    setNewCategory(reward.category);
+    setIsModalOpen(true);
+  };
+
+  const handleDeleteReward = (reward: Reward) => {
+    if (window.confirm(`¿Estás seguro de eliminar la recompensa "${reward.title}"?`)) {
+      deleteReward(reward.id);
+    }
+  };
+
   const handleSaveReward = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
 
-    addReward({
-      title: newTitle.trim(),
-      description: newDesc.trim() || 'Recompensa familiar por esfuerzo y responsabilidad',
-      pointsCost: Number(newCost) || 10,
-      icon: 'Gift',
-      category: newCategory,
-    });
+    if (editingRewardId) {
+      updateReward(editingRewardId, {
+        title: newTitle.trim(),
+        description: newDesc.trim() || 'Recompensa familiar por esfuerzo y responsabilidad',
+        pointsCost: Number(newCost) || 10,
+        category: newCategory,
+      });
+    } else {
+      addReward({
+        title: newTitle.trim(),
+        description: newDesc.trim() || 'Recompensa familiar por esfuerzo y responsabilidad',
+        pointsCost: Number(newCost) || 10,
+        icon: 'Gift',
+        category: newCategory,
+      });
+    }
 
     setNewTitle('');
     setNewDesc('');
+    setEditingRewardId(null);
     setIsModalOpen(false);
+  };
+
+  const targetAdjustChild = members.find((m) => m.id === adjustChildId);
+  const currentChildPoints = targetAdjustChild?.points || 0;
+  const projectedChildPoints =
+    adjustType === 'add'
+      ? currentChildPoints + (Number(adjustAmount) || 0)
+      : Math.max(0, currentChildPoints - (Number(adjustAmount) || 0));
+
+  const handleOpenAdjustModal = (childId?: string) => {
+    if (childId) {
+      setAdjustChildId(childId);
+    } else {
+      setAdjustChildId(selectedChildId || childrenMembers[0]?.id || 'annie');
+    }
+    setAdjustType('add');
+    setAdjustAmount(5);
+    setAdjustReason('');
+    setIsAdjustModalOpen(true);
+  };
+
+  const handleSavePointsAdjustment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetAdjustChild || !adjustAmount || adjustAmount <= 0) return;
+
+    const delta = adjustType === 'add' ? Number(adjustAmount) : -Number(adjustAmount);
+    const reasonText =
+      adjustReason.trim() ||
+      (adjustType === 'add'
+        ? 'Reconocimiento / Puntos adicionales'
+        : 'Corrección / Ajuste manual de puntos');
+
+    adjustMemberPoints(targetAdjustChild.id, delta, reasonText);
+    setRedemptionSuccess(
+      `Puntos actualizados para ${targetAdjustChild.name}: ${delta > 0 ? `+${delta}` : delta} pts (Nuevo saldo: ${Math.max(0, targetAdjustChild.points + delta)} pts)`
+    );
+    setTimeout(() => setRedemptionSuccess(null), 4500);
+    setIsAdjustModalOpen(false);
   };
 
   const getRewardIcon = (cat: RewardCategory) => {
@@ -103,13 +189,22 @@ export const RewardsView: React.FC = () => {
         </div>
 
         {isAdultView && (
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-2xl shadow-sm transition-all cursor-pointer hover:shadow-md"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Crear Recompensa</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleOpenAdjustModal()}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-stone-50 text-stone-700 border border-stone-200 text-xs font-bold rounded-2xl shadow-xs transition-all cursor-pointer hover:border-amber-300"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-amber-600" />
+              <span>Ajustar Puntos</span>
+            </button>
+            <button
+              onClick={openNewRewardModal}
+              className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-2xl shadow-sm transition-all cursor-pointer hover:shadow-md"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Crear Recompensa</span>
+            </button>
+          </div>
         )}
       </div>
 
@@ -148,11 +243,25 @@ export const RewardsView: React.FC = () => {
               </div>
             </div>
 
-            <div className="text-right">
+            <div className="text-right flex flex-col items-end">
               <span className="text-lg font-black text-amber-600 block leading-tight">
                 {child.points}
               </span>
               <span className="text-[10px] font-bold text-stone-400 uppercase">puntos</span>
+              {isAdultView && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenAdjustModal(child.id);
+                  }}
+                  className="mt-1 text-[10px] text-amber-700 hover:text-amber-900 bg-amber-100/70 hover:bg-amber-200/80 px-2 py-0.5 rounded-lg font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                  title="Ajustar o corregir puntos"
+                >
+                  <SlidersHorizontal className="w-2.5 h-2.5" />
+                  <span>Ajustar</span>
+                </button>
+              )}
             </div>
           </div>
         ))}
@@ -184,9 +293,31 @@ export const RewardsView: React.FC = () => {
                       {getRewardIcon(reward.category)}
                     </div>
 
-                    <div className="flex items-center gap-1 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200/70 text-amber-900 font-black text-xs">
-                      <Trophy className="w-3.5 h-3.5 text-amber-500" />
-                      <span>{reward.pointsCost} pts</span>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200/70 text-amber-900 font-black text-xs">
+                        <Trophy className="w-3.5 h-3.5 text-amber-500" />
+                        <span>{reward.pointsCost} pts</span>
+                      </div>
+                      {isAdultView && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openEditRewardModal(reward)}
+                            className="p-1 text-stone-400 hover:text-amber-600 hover:bg-stone-100 rounded-lg transition-colors cursor-pointer"
+                            title="Editar recompensa"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteReward(reward)}
+                            className="p-1 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            title="Eliminar recompensa"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -265,12 +396,15 @@ export const RewardsView: React.FC = () => {
         )}
       </div>
 
-      {/* New Reward Modal */}
+      {/* New / Edit Reward Modal */}
       <Modal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title="Crear Nueva Recompensa"
-        subtitle="Define un premio motivador para los niños"
+        onClose={() => {
+          setIsModalOpen(false);
+          setEditingRewardId(null);
+        }}
+        title={editingRewardId ? 'Editar Recompensa' : 'Crear Nueva Recompensa'}
+        subtitle={editingRewardId ? 'Modifica los detalles de este premio familiar' : 'Define un premio motivador para los niños'}
       >
         <form onSubmit={handleSaveReward} className="space-y-4">
           <div>
@@ -325,14 +459,17 @@ export const RewardsView: React.FC = () => {
               placeholder="Ej: Elegir qué cenamos el sábado..."
               value={newDesc}
               onChange={(e) => setNewDesc(e.target.value)}
-              className="w-full px-3.5 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs"
+              className="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs"
             />
           </div>
 
           <div className="pt-3 flex justify-end gap-2 border-t border-stone-100">
             <button
               type="button"
-              onClick={() => setIsModalOpen(false)}
+              onClick={() => {
+                setIsModalOpen(false);
+                setEditingRewardId(null);
+              }}
               className="px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-100 rounded-xl transition-colors cursor-pointer"
             >
               Cancelar
@@ -341,7 +478,111 @@ export const RewardsView: React.FC = () => {
               type="submit"
               className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
             >
-              Guardar Recompensa
+              {editingRewardId ? 'Guardar Cambios' : 'Guardar Recompensa'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Points Adjustment Modal (Adult co-administration) */}
+      <Modal
+        isOpen={isAdjustModalOpen}
+        onClose={() => setIsAdjustModalOpen(false)}
+        title="Ajustar / Corregir Puntos"
+        subtitle="Administra la alcancía familiar de los niños de forma transparente"
+      >
+        <form onSubmit={handleSavePointsAdjustment} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">
+              Seleccionar Niño
+            </label>
+            <select
+              value={adjustChildId}
+              onChange={(e) => setAdjustChildId(e.target.value)}
+              className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs"
+            >
+              {childrenMembers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} (Saldo actual: {c.points} pts)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-stone-700 mb-1">
+                Tipo de Acción
+              </label>
+              <select
+                value={adjustType}
+                onChange={(e) => setAdjustType(e.target.value as 'add' | 'subtract')}
+                className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold"
+              >
+                <option value="add">➕ Sumar Puntos (Premio / Bono)</option>
+                <option value="subtract">➖ Restar Puntos (Corrección / Descuento)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-stone-700 mb-1">
+                Cantidad de Puntos
+              </label>
+              <input
+                type="number"
+                min={1}
+                required
+                value={adjustAmount}
+                onChange={(e) => setAdjustAmount(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold"
+              />
+            </div>
+          </div>
+
+          {/* Live balance preview */}
+          <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-2xl flex items-center justify-between text-xs">
+            <span className="text-stone-600 font-medium">
+              Saldo para <strong>{targetAdjustChild?.name}</strong>:
+            </span>
+            <div className="flex items-center gap-2 font-black">
+              <span className="text-stone-500">{currentChildPoints} pts</span>
+              <span>→</span>
+              <span className={adjustType === 'add' ? 'text-emerald-700' : 'text-amber-700'}>
+                {projectedChildPoints} pts
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">
+              Motivo o Justificación del Ajuste
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="Ej: Bono por colaborar sin que se lo pidieran, Corrección de registro duplicado..."
+              value={adjustReason}
+              onChange={(e) => setAdjustReason(e.target.value)}
+              className="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs focus:bg-white"
+            />
+            <p className="text-[10px] text-stone-400 mt-1">
+              Este movimiento quedará registrado en el historial de puntos con la fecha de hoy.
+            </p>
+          </div>
+
+          <div className="pt-3 flex justify-end gap-2 border-t border-stone-100">
+            <button
+              type="button"
+              onClick={() => setIsAdjustModalOpen(false)}
+              className="px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-100 rounded-xl transition-colors cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+            >
+              Aplicar Ajuste de Puntos
             </button>
           </div>
         </form>

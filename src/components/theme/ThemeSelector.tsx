@@ -58,6 +58,7 @@ export const ThemeSelector: React.FC<ThemeSelectorProps> = ({
   // Target member to customize: default to activeProfileId or forcedMemberId
   const initialTarget = forcedMemberId || (activeProfileId === 'family' ? 'mama' : activeProfileId);
   const [selectedMemberId, setSelectedMemberId] = useState<string>(initialTarget);
+  const [prevMemberId, setPrevMemberId] = useState<string>(initialTarget);
 
   const targetMember = getMember(selectedMemberId) || members[0];
   const isTargetChild = targetMember?.role === 'child';
@@ -73,13 +74,22 @@ export const ThemeSelector: React.FC<ThemeSelectorProps> = ({
 
   const [savedSuccess, setSavedSuccess] = useState(false);
 
-  // Sync state when selectedMemberId changes
-  useEffect(() => {
+  // Sync style and color during render when selectedMemberId changes
+  if (selectedMemberId !== prevMemberId) {
+    setPrevMemberId(selectedMemberId);
     const pref = getPreferenceForMember(selectedMemberId, isTargetChild ? 'child' : 'adult');
     setSelectedStyle(pref.visualStyle);
     setSelectedColor(pref.personalColor);
+  }
+
+  // Sync external preview when selectedMemberId changes
+  useEffect(() => {
+    const pref = getPreferenceForMember(selectedMemberId, isTargetChild ? 'child' : 'adult');
     setPreviewTheme(pref);
-  }, [selectedMemberId, isTargetChild]);
+    return () => {
+      setPreviewTheme(null);
+    };
+  }, [selectedMemberId, isTargetChild, getPreferenceForMember, setPreviewTheme]);
 
   // Handle changing style
   const handleStyleSelect = (style: VisualStyle) => {

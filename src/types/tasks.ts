@@ -1,5 +1,5 @@
 export type TaskPriority = 'high' | 'medium' | 'low';
-export type TaskStatus = 'pending' | 'in_progress' | 'completed';
+export type TaskStatus = 'pending' | 'in_progress' | 'pending_approval' | 'completed';
 export type TaskRecurrence = 'none' | 'daily' | 'weekly' | 'monthly';
 
 export interface Task {
@@ -15,5 +15,7 @@ export interface Task {
   recurrence?: TaskRecurrence;
   relatedMemberId?: string; // e.g. for Axel
   completedAt?: string;
+  completedBy?: string; // member id who finished the task (e.g. child)
+  pointsReward?: number; // points awarded upon parent approval
   createdAt: string;
 }

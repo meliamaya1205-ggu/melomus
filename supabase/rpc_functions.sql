@@ -253,21 +253,53 @@ begin
   -- Obtener email del usuario autenticado
   select email into v_user_email from auth.users where id = v_user_id;
 
-  -- Buscar invitación válida y no expirada
+  -- 1. Buscar la invitación por token
   select * into v_invite 
   from co_admin_invites
   where token_hash = p_token
-    and used_at is null
-    and expires_at > now()
   limit 1;
 
   if not found then
-    return jsonb_build_object('success', false, 'message', 'El enlace de vinculación no es válido o ha expirado');
+    return jsonb_build_object('success', false, 'message', 'El enlace de vinculación no es válido o no existe');
   end if;
 
-  -- Comprobar si el usuario ya tiene un perfil
+  -- 2. Validar que no haya sido utilizada
+  if v_invite.used_at is not null then
+    return jsonb_build_object('success', false, 'message', 'Este enlace de vinculación ya ha sido utilizado anteriormente');
+  end if;
+
+  -- 3. Validar vigencia temporal
+  if v_invite.expires_at <= now() then
+    return jsonb_build_object('success', false, 'message', 'Este enlace de vinculación ha expirado (vigencia 48h)');
+  end if;
+
+  -- 4. Protección contra auto-vinculación (el creador no puede reclamar su propio enlace)
+  if v_invite.created_by_user_id = v_user_id then
+    return jsonb_build_object('success', false, 'message', 'No puedes utilizar una invitación creada por ti mismo');
+  end if;
+
+  -- 5. Validar si el usuario ya pertenece a otra familia
   select * into v_existing_profile from profiles where id = v_user_id;
-  if found then
+  if found and v_existing_profile.family_id is not null and v_existing_profile.family_id <> v_invite.family_id then
+    return jsonb_build_object('success', false, 'message', 'Tu usuario ya pertenece a otra familia registrada en MELOMUS. Debes usar una cuenta distinta.');
+  end if;
+
+  -- 6. Validar si el rol de destino ya está ocupado por otra persona en la familia
+  declare
+    v_other_adult record;
+  begin
+    select * into v_other_adult 
+    from profiles 
+    where family_id = v_invite.family_id 
+      and relationship = v_invite.target_relationship
+      and id <> v_user_id;
+    if found then
+      return jsonb_build_object('success', false, 'message', 'El rol de ' || v_invite.target_relationship || ' ya está ocupado en esta familia');
+    end if;
+  end;
+
+  -- 7. Crear o actualizar perfil como co-administrador (FAMILY_ADULT)
+  if v_existing_profile is not null and v_existing_profile.id is not null then
     -- Actualizar familia del perfil existente
     update profiles
     set family_id = v_invite.family_id,
@@ -303,7 +335,7 @@ begin
     );
   end if;
 
-  -- Vincular o actualizar directorio family_members
+  -- 8. Vincular o actualizar directorio family_members
   insert into family_members (
     id,
     family_id,
@@ -329,7 +361,7 @@ begin
     avatar_color = excluded.avatar_color,
     avatar_emoji = excluded.avatar_emoji;
 
-  -- Marcar la invitación como utilizada inmediatamente
+  -- 9. Marcar la invitación como utilizada inmediatamente
   update co_admin_invites
   set used_at = now(),
       used_by_user_id = v_user_id
@@ -374,4 +406,5 @@ alter publication supabase_realtime add table
   rewards, 
   points_history, 
   notifications, 
-  family_members;
+  family_members,
+  app_customizations;

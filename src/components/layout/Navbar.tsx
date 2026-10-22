@@ -3,7 +3,7 @@ import { useFamily } from '../../context/FamilyContext';
 import { useTheme } from '../../context/ThemeContext';
 import { formatFullDate } from '../../services/dateUtils';
 import { Avatar } from '../common/Avatar';
-import { Plus, Timer, ChevronDown, ShieldCheck, Baby, Bell, Link, LogOut, Cloud, UserPlus } from 'lucide-react';
+import { Plus, Timer, ChevronDown, ShieldCheck, Baby, Bell, Link, LogOut, Cloud, UserPlus, RefreshCw, WifiOff, AlertTriangle } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
   const {
@@ -22,6 +22,10 @@ export const Navbar: React.FC = () => {
     logoutAuthUser,
     isSupabaseAuthActive,
     currentUser,
+    dataMode,
+    syncStatus,
+    pendingSyncCount,
+    flushSyncOutbox,
   } = useFamily();
   const { tokens, isMinimalista, isPremium } = useTheme();
 
@@ -59,6 +63,65 @@ export const Navbar: React.FC = () => {
               <span className="text-xs bg-amber-50 text-amber-800 font-medium px-2 py-0.5 rounded-full border border-amber-200/60 hidden sm:inline-block shrink-0">
                 {config.familyName}
               </span>
+
+              {/* Indicador de Sincronización Discreto */}
+              {dataMode === 'local_demo' ? (
+                <div
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-stone-100 text-stone-600 border border-stone-200/80 cursor-default select-none shrink-0"
+                  title="Modo local: Los cambios se guardan solo en este dispositivo."
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-stone-400" />
+                  <span className="hidden xs:inline">Modo Local</span>
+                </div>
+              ) : syncStatus === 'syncing' ? (
+                <button
+                  type="button"
+                  onClick={flushSyncOutbox}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-sky-50 text-sky-700 border border-sky-200/80 transition-all cursor-pointer shrink-0"
+                  title="Sincronizando cambios con Supabase..."
+                >
+                  <RefreshCw className="w-3 h-3 text-sky-600 animate-spin" />
+                  <span className="hidden xs:inline">Sincronizando...</span>
+                </button>
+              ) : syncStatus === 'offline' ? (
+                <div
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-800 border border-amber-200/80 cursor-default shrink-0"
+                  title="Sin conexión a internet. Los cambios se guardarán automáticamente al reconectar."
+                >
+                  <WifiOff className="w-3 h-3 text-amber-600" />
+                  <span className="hidden xs:inline">Sin conexión</span>
+                  {pendingSyncCount > 0 && <span className="font-bold">({pendingSyncCount})</span>}
+                </div>
+              ) : syncStatus === 'pending' || pendingSyncCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={flushSyncOutbox}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-800 border border-amber-300 hover:bg-amber-100 transition-all cursor-pointer shrink-0"
+                  title={`${pendingSyncCount} cambio(s) pendientes de subir a la nube. Clic para forzar sincronización.`}
+                >
+                  <AlertTriangle className="w-3 h-3 text-amber-600" />
+                  <span className="hidden xs:inline">Cambios pendientes</span>
+                  <span className="font-bold">({pendingSyncCount})</span>
+                </button>
+              ) : syncStatus === 'error' ? (
+                <button
+                  type="button"
+                  onClick={flushSyncOutbox}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100 transition-all cursor-pointer shrink-0"
+                  title="Hubo un error al guardar en Supabase. Clic para reintentar."
+                >
+                  <AlertTriangle className="w-3 h-3 text-rose-600" />
+                  <span className="hidden xs:inline">Error al sincronizar</span>
+                </button>
+              ) : (
+                <div
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60 cursor-default select-none shrink-0"
+                  title="Todos los datos están sincronizados en tiempo real con la nube."
+                >
+                  <Cloud className="w-3 h-3 text-emerald-600" />
+                  <span className="hidden xs:inline">Sincronizado</span>
+                </div>
+              )}
             </div>
             <p className="text-[10px] sm:text-xs text-stone-500 capitalize truncate mt-0.5">{todayFormatted}</p>
           </div>
