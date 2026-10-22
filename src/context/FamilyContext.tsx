@@ -293,7 +293,18 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const getInitialInviteToken = () => {
     if (typeof window === 'undefined') return null;
     const params = new URLSearchParams(window.location.search);
-    return params.get('vincular') || params.get('token') || null;
+    let token = params.get('vincular') || params.get('token') || params.get('invite') || params.get('invite_token') || null;
+    if (!token && window.location.hash) {
+      const hashQuery = window.location.hash.split('?')[1];
+      if (hashQuery) {
+        const hashParams = new URLSearchParams(hashQuery);
+        token = hashParams.get('vincular') || hashParams.get('token') || hashParams.get('invite') || hashParams.get('invite_token') || null;
+      }
+    }
+    if (!token && window.location.pathname.startsWith('/invite/')) {
+      token = window.location.pathname.replace('/invite/', '').trim();
+    }
+    return token ? authService.cleanInviteToken(token) : null;
   };
 
   const initialInviteToken = getInitialInviteToken();
@@ -348,6 +359,28 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             setTimeout(() => {
               isSyncingFromRemoteRef.current = false;
             }, 60);
+          }
+        }
+
+        // Si se abrió un enlace de invitación teniendo sesión activa
+        if (initialInviteToken) {
+          try {
+            const details = await authService.getInviteDetails(initialInviteToken);
+            if (details.valid && details.familyId === user.familyId) {
+              // Ya forma parte de esta familia: limpiar la URL
+              const url = new URL(window.location.href);
+              url.searchParams.delete('token');
+              url.searchParams.delete('vincular');
+              url.searchParams.delete('invite');
+              window.history.replaceState({}, '', url.pathname);
+              setInviteToken(null);
+            } else if (details.valid) {
+              // Usuario autenticado que desea vincularse a la familia
+              setAuthModalMode('claim_invite');
+              setAuthModalOpen(true);
+            }
+          } catch {
+            // Ignorar errores menores de consulta previa
           }
         }
       }
@@ -574,7 +607,15 @@ export const FamilyProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         }, 60);
       }
     }
+    setInviteToken(null);
     setAuthModalOpen(false);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('token');
+      url.searchParams.delete('vincular');
+      url.searchParams.delete('invite');
+      window.history.replaceState({}, '', url.pathname);
+    }
   };
 
   const activeMember = state.members.find((m) => m.id === activeProfileId);

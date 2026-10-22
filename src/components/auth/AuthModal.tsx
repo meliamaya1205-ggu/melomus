@@ -217,58 +217,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setErrorMessage(null);
 
     try {
-      // 1. Try sign in first, or sign up if new
-      let user = await authService.getCurrentUser();
+      const res = await authService.claimInviteWithAccount({
+        email: email.trim().toLowerCase(),
+        password,
+        name: name.trim(),
+        relationship,
+        inviteToken: activeToken,
+      });
 
-      if (!user) {
-        // Attempt sign in with entered credentials
-        const signInRes = await authService.signIn(email, password);
-        if (signInRes.success && signInRes.data) {
-          user = signInRes.data.user;
-          const claimRes = await authService.claimCoAdminInvite(activeToken, name);
-          if (!claimRes.success || !claimRes.data) {
-            setErrorMessage(claimRes.error || 'No fue posible vincular tu cuenta con la familia.');
-            setLoading(false);
-            return;
-          }
-          user = {
-            ...user,
-            familyId: claimRes.data.familyId,
-            relationship: claimRes.data.relationship as PrimaryAdultRelationship,
-            memberId: claimRes.data.relationship,
-          };
-        } else {
-          // Attempt sign up directly linked to the invited family
-          const signUpRes = await authService.signUpForInvite({
-            email,
-            password,
-            name,
-            relationship,
-            inviteToken: activeToken,
-          });
-
-          if (signUpRes.success && signUpRes.data) {
-            user = signUpRes.data.user;
-          } else {
-            setErrorMessage(signUpRes.error || 'Error al autenticar y vincular usuario.');
-            setLoading(false);
-            return;
-          }
-        }
-      } else {
-        const claimRes = await authService.claimCoAdminInvite(activeToken, name);
-        if (!claimRes.success || !claimRes.data) {
-          setErrorMessage(claimRes.error || 'No fue posible vincular tu cuenta con la familia.');
-          setLoading(false);
-          return;
-        }
-        user = {
-          ...user,
-          familyId: claimRes.data.familyId,
-          relationship: claimRes.data.relationship as PrimaryAdultRelationship,
-          memberId: claimRes.data.relationship,
-        };
+      if (!res.success || !res.data) {
+        setErrorMessage(res.error || 'No fue posible vincular tu cuenta con la familia.');
+        setLoading(false);
+        return;
       }
+
+      const user = res.data.user;
 
       setLoading(false);
       triggerConfetti();

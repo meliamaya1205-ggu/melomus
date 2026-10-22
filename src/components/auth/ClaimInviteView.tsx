@@ -46,6 +46,17 @@ export const ClaimInviteView: React.FC<ClaimInviteViewProps> = ({
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [existingSessionUser, setExistingSessionUser] = useState<AuthUser | null>(null);
+
+  useEffect(() => {
+    authService.getCurrentUser().then((u) => {
+      if (u) {
+        setExistingSessionUser(u);
+        if (u.name) setName(u.name);
+        if (u.email) setEmail(u.email);
+      }
+    });
+  }, []);
 
   const verifyToken = async (rawToken: string) => {
     const clean = cleanTokenFromInput(rawToken);
@@ -125,7 +136,7 @@ export const ClaimInviteView: React.FC<ClaimInviteViewProps> = ({
       return;
     }
 
-    if (password.length < 6) {
+    if (!existingSessionUser && password.length < 6) {
       setErrorMessage('La contraseña debe tener al menos 6 caracteres.');
       return;
     }
@@ -134,60 +145,21 @@ export const ClaimInviteView: React.FC<ClaimInviteViewProps> = ({
     setErrorMessage(null);
 
     try {
-      // 1. Authenticate user: Check current user or signIn, or signUp if account doesn't exist
-      let user = await authService.getCurrentUser();
+      const res = await authService.claimInviteWithAccount({
+        email: email.trim().toLowerCase(),
+        password,
+        name: cleanName,
+        relationship: targetRelationship,
+        inviteToken: activeToken,
+      });
 
-      if (!user) {
-        // Try sign in first with the entered credentials
-        const signInRes = await authService.signIn(email.trim().toLowerCase(), password);
-        if (signInRes.success && signInRes.data) {
-          user = signInRes.data.user;
-          // Claim co-admin link to associate existing account with this family
-          const claimRes = await authService.claimCoAdminInvite(activeToken, cleanName);
-          if (!claimRes.success || !claimRes.data) {
-            setErrorMessage(claimRes.error || 'No fue posible vincular tu cuenta a la familia.');
-            setLoading(false);
-            return;
-          }
-          user = {
-            ...user,
-            familyId: claimRes.data.familyId,
-            relationship: claimRes.data.relationship as PrimaryAdultRelationship,
-            memberId: claimRes.data.relationship,
-          };
-        } else {
-          // If sign in fails, create their account directly linked to the invited family
-          const signUpRes = await authService.signUpForInvite({
-            email: email.trim().toLowerCase(),
-            password,
-            name: cleanName,
-            relationship: targetRelationship,
-            inviteToken: activeToken,
-          });
-
-          if (signUpRes.success && signUpRes.data) {
-            user = signUpRes.data.user;
-          } else {
-            setErrorMessage(signUpRes.error || 'No fue posible crear y vincular la cuenta.');
-            setLoading(false);
-            return;
-          }
-        }
-      } else {
-        // Already authenticated session: claim link
-        const claimRes = await authService.claimCoAdminInvite(activeToken, cleanName);
-        if (!claimRes.success || !claimRes.data) {
-          setErrorMessage(claimRes.error || 'No fue posible vincular tu cuenta a la familia.');
-          setLoading(false);
-          return;
-        }
-        user = {
-          ...user,
-          familyId: claimRes.data.familyId,
-          relationship: claimRes.data.relationship as PrimaryAdultRelationship,
-          memberId: claimRes.data.relationship,
-        };
+      if (!res.success || !res.data) {
+        setErrorMessage(res.error || 'No fue posible vincular tu cuenta a la familia.');
+        setLoading(false);
+        return;
       }
+
+      const user = res.data.user;
 
       setLoading(false);
       triggerConfetti();
@@ -325,29 +297,36 @@ export const ClaimInviteView: React.FC<ClaimInviteViewProps> = ({
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-stone-700 block">Contraseña</label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-stone-400 absolute left-3.5 top-3" />
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Mínimo 6 caracteres"
-                    className="w-full pl-10 pr-10 py-2.5 bg-stone-50 border border-stone-200/80 rounded-xl text-xs text-stone-800 placeholder-stone-400 focus:bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-hidden transition-all"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-600 transition-colors cursor-pointer"
-                    aria-label="Ver u ocultar contraseña"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+              {!existingSessionUser ? (
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-stone-700 block">Contraseña</label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-stone-400 absolute left-3.5 top-3" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      required={!existingSessionUser}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Mínimo 6 caracteres"
+                      className="w-full pl-10 pr-10 py-2.5 bg-stone-50 border border-stone-200/80 rounded-xl text-xs text-stone-800 placeholder-stone-400 focus:bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-hidden transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-600 transition-colors cursor-pointer"
+                      aria-label="Ver u ocultar contraseña"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-stone-400">Si ya tenías una cuenta previa en MELOMUS, usa tu contraseña habitual.</p>
                 </div>
-                <p className="text-[10px] text-stone-400">Si ya tenías una cuenta previa en MELOMUS, usa tu contraseña habitual.</p>
-              </div>
+              ) : (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Sesión iniciada como <strong>{existingSessionUser.name}</strong>. Tu cuenta se vinculará directamente sin pedir contraseña.</span>
+                </div>
+              )}
 
               <button
                 type="submit"

@@ -141,8 +141,11 @@ const ThemedApp: React.FC = () => {
     if (typeof window === 'undefined') return false;
     const path = window.location.pathname;
     const search = window.location.search;
-    const hasKidToken = search.includes('kid_token=') || (search.includes('token=') && path.includes('kids'));
-    const isKidsPath = path.startsWith('/kids');
+    const hash = window.location.hash;
+    const hasKidToken = search.includes('kid_token=') ||
+                        hash.includes('kid_token=') ||
+                        ((search.includes('token=') || hash.includes('token=')) && (path.includes('kids') || hash.includes('kids')));
+    const isKidsPath = path.startsWith('/kids') || hash.startsWith('#/kids') || hash.includes('/kids');
     const isLinkedKidDevice = kidAuthService.getLinkedDevice() !== null;
     return (
       isKidsPath ||

@@ -20,10 +20,17 @@ export const KidsAppView: React.FC<KidsAppViewProps> = ({ onExitToAdult }) => {
   // Check URL query parameters and local device auth on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const tokenFromUrl = params.get('token') || params.get('kid_token');
+    let tokenFromUrl = params.get('token') || params.get('kid_token');
+    if (!tokenFromUrl && window.location.hash) {
+      const hashQuery = window.location.hash.split('?')[1];
+      if (hashQuery) {
+        const hashParams = new URLSearchParams(hashQuery);
+        tokenFromUrl = hashParams.get('token') || hashParams.get('kid_token');
+      }
+    }
 
     if (tokenFromUrl) {
-      setInviteToken(tokenFromUrl);
+      setInviteToken(tokenFromUrl.trim());
       setDeviceStatus('checking');
       return;
     }

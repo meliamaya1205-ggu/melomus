@@ -19,6 +19,20 @@ function generateRandomSecret(): string {
     .join('');
 }
 
+function cleanKidToken(raw: string): string {
+  if (!raw) return '';
+  let clean = raw.trim();
+  if (clean.includes('?') || clean.includes('/')) {
+    try {
+      const url = new URL(clean.startsWith('http') ? clean : `https://${clean}`);
+      clean = url.searchParams.get('token') || url.searchParams.get('kid_token') || clean;
+    } catch {
+      // no es una url
+    }
+  }
+  return clean;
+}
+
 export const kidAuthService = {
   /**
    * Obtiene la credencial no sensible del dispositivo almacenada localmente.
@@ -54,7 +68,12 @@ export const kidAuthService = {
   /**
    * Consulta los detalles de una invitación de vinculación
    */
-  async getInviteDetails(token: string): Promise<{ success: boolean; data?: KidDeviceInviteDetails; error?: string }> {
+  async getInviteDetails(rawToken: string): Promise<{ success: boolean; data?: KidDeviceInviteDetails; error?: string }> {
+    const token = cleanKidToken(rawToken);
+    if (!token) {
+      return { success: false, error: 'Código de invitación no válido' };
+    }
+
     if (!supabase || !isSupabaseConfigured()) {
       // Modo local simulado para pruebas de desarrollo
       return {
@@ -108,6 +127,11 @@ export const kidAuthService = {
     deviceName: string;
     childDetails: KidDeviceInviteDetails;
   }): Promise<{ success: boolean; deviceId?: string; error?: string; message?: string }> {
+    const cleanToken = cleanKidToken(params.token);
+    if (!cleanToken) {
+      return { success: false, error: 'Token de vinculación no válido' };
+    }
+
     const deviceSecret = generateRandomSecret();
     const deviceSecretHash = await sha256Hex(deviceSecret);
 
@@ -132,7 +156,7 @@ export const kidAuthService = {
 
     try {
       const { data, error } = await supabase.rpc('register_kid_device_request', {
-        p_token: params.token,
+        p_token: cleanToken,
         p_pin: params.pin,
         p_device_name: params.deviceName,
         p_device_token_hash: deviceSecretHash,

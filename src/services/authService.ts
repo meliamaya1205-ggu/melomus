@@ -441,13 +441,39 @@ export const authService = {
   },
 
   /**
+   * Limpia y normaliza el token de invitación para extraer el código limpio
+   * incluso si el usuario copia la URL completa desde el portapapeles o WhatsApp.
+   */
+  cleanInviteToken(token: string): string {
+    if (!token) return '';
+    let clean = token.trim();
+    if (clean.includes('?') || clean.includes('/')) {
+      try {
+        const url = new URL(clean.startsWith('http') ? clean : `https://${clean}`);
+        clean = url.searchParams.get('vincular') || url.searchParams.get('token') || url.searchParams.get('invite') || clean;
+      } catch {
+        // No es una URL válida, conservar token limpio
+      }
+    }
+    return clean;
+  },
+
+  /**
    * Check invite validity before displaying the linking screen to the second adult
    */
-  async getInviteDetails(token: string): Promise<InviteDetailsResult> {
+  async getInviteDetails(rawToken: string): Promise<InviteDetailsResult> {
     if (!supabase) {
       return {
         valid: false,
         message: 'La conexión con el servidor familiar no está disponible. No es posible validar la invitación sin conexión.',
+      };
+    }
+
+    const token = this.cleanInviteToken(rawToken);
+    if (!token) {
+      return {
+        valid: false,
+        message: 'El código o enlace de vinculación no es válido.',
       };
     }
 
@@ -489,13 +515,15 @@ export const authService = {
   /**
    * Claim invite to link the second adult to the family with total co-administration parity
    */
-  async claimCoAdminInvite(token: string, name: string): Promise<AuthResponse<{ familyId: string; relationship: string }>> {
+  async claimCoAdminInvite(rawToken: string, name: string): Promise<AuthResponse<{ familyId: string; relationship: string }>> {
     if (!supabase) {
       return {
         success: false,
         error: 'No es posible vincularse sin conexión activa a Supabase.',
       };
     }
+
+    const token = this.cleanInviteToken(rawToken);
 
     try {
       const { data, error } = await supabase.rpc('claim_coadmin_link', {
@@ -608,6 +636,270 @@ export const authService = {
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Error inesperado durante el registro.',
+      };
+    }
+  },
+
+  /**
+   * Proceso unificado y definitivo para reclamar invitación de coadministrador:
+   * Conecta y resuelve con total seguridad los 3 escenarios posibles:
+   * 1. Usuario con sesión ya autenticada en Supabase -> Vincula directamente con su sesión activa.
+   * 2. Usuario con cuenta existente -> Inicia sesión con su contraseña y reclama el vínculo.
+   * 3. Usuario nuevo -> Crea la cuenta, asegura sesión activa y reclama el vínculo.
+   */
+  async claimInviteWithAccount(params: {
+    email: string;
+    password?: string;
+    name: string;
+    relationship: PrimaryAdultRelationship;
+    inviteToken: string;
+  }): Promise<AuthResponse<{ user: AuthUser; familyId: string; relationship: string }>> {
+    if (!supabase) {
+      return {
+        success: false,
+        error: 'La conexión con Supabase no está disponible.',
+      };
+    }
+
+    const cleanToken = this.cleanInviteToken(params.inviteToken);
+    if (!cleanToken) {
+      return {
+        success: false,
+        error: 'El código o enlace de vinculación es inválido o está vacío.',
+      };
+    }
+
+    const cleanEmail = params.email.trim().toLowerCase();
+    const cleanName = params.name.trim() || (params.relationship === 'papa' ? 'Papá' : 'Mamá');
+
+    try {
+      // Escenario 1: Sesión ya activa en Supabase
+      const { data: sessionData } = await supabase.auth.getSession();
+      const currentAuthUser = sessionData?.session?.user;
+
+      if (currentAuthUser) {
+        const { data: claimData, error: claimError } = await supabase.rpc('claim_coadmin_link', {
+          p_token: cleanToken,
+          p_name: cleanName,
+        });
+
+        if (claimError || !claimData?.success) {
+          return {
+            success: false,
+            error: claimData?.message || claimError?.message || 'No fue posible vincular tu cuenta con la familia.',
+          };
+        }
+
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', currentAuthUser.id)
+          .single();
+
+        const userProfile: AuthUser = profile ? {
+          id: profile.id,
+          familyId: profile.family_id,
+          email: profile.email,
+          name: profile.name,
+          role: profile.role,
+          relationship: profile.relationship,
+          memberId: profile.member_id,
+          avatarColor: profile.avatar_color,
+          avatarEmoji: profile.avatar_emoji,
+        } : {
+          id: currentAuthUser.id,
+          familyId: claimData.family_id,
+          email: currentAuthUser.email || cleanEmail,
+          name: cleanName,
+          role: 'FAMILY_ADULT',
+          relationship: params.relationship,
+          memberId: params.relationship,
+          avatarColor: params.relationship === 'papa' ? '#3b82f6' : '#ec4899',
+          avatarEmoji: params.relationship === 'papa' ? '🌿' : '🌸',
+        };
+
+        setLocalStoredUser(userProfile);
+        return {
+          success: true,
+          data: {
+            user: userProfile,
+            familyId: claimData.family_id,
+            relationship: claimData.relationship,
+          },
+        };
+      }
+
+      // Para los siguientes escenarios se requiere contraseña
+      if (!params.password) {
+        return {
+          success: false,
+          error: 'Por favor ingresa tu contraseña para vincular la cuenta.',
+        };
+      }
+
+      // Escenario 2: Intentar iniciar sesión (cuenta existente)
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password: params.password,
+      });
+
+      if (signInData?.user) {
+        // Sesión iniciada con éxito -> reclamar enlace
+        const { data: claimData, error: claimError } = await supabase.rpc('claim_coadmin_link', {
+          p_token: cleanToken,
+          p_name: cleanName,
+        });
+
+        if (claimError || !claimData?.success) {
+          return {
+            success: false,
+            error: claimData?.message || claimError?.message || 'No fue posible vincular la cuenta a la familia.',
+          };
+        }
+
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', signInData.user.id)
+          .single();
+
+        const userProfile: AuthUser = profile ? {
+          id: profile.id,
+          familyId: profile.family_id,
+          email: profile.email,
+          name: profile.name,
+          role: profile.role,
+          relationship: profile.relationship,
+          memberId: profile.member_id,
+          avatarColor: profile.avatar_color,
+          avatarEmoji: profile.avatar_emoji,
+        } : {
+          id: signInData.user.id,
+          familyId: claimData.family_id,
+          email: cleanEmail,
+          name: cleanName,
+          role: 'FAMILY_ADULT',
+          relationship: params.relationship,
+          memberId: params.relationship,
+          avatarColor: params.relationship === 'papa' ? '#3b82f6' : '#ec4899',
+          avatarEmoji: params.relationship === 'papa' ? '🌿' : '🌸',
+        };
+
+        setLocalStoredUser(userProfile);
+        return {
+          success: true,
+          data: {
+            user: userProfile,
+            familyId: claimData.family_id,
+            relationship: claimData.relationship,
+          },
+        };
+      }
+
+      // Comprobar error de confirmación de email
+      if (signInError) {
+        const rawMsg = signInError.message.toLowerCase();
+        if (rawMsg.includes('email not confirmed')) {
+          return {
+            success: false,
+            error: 'Tu correo aún no ha sido confirmado. Revisa tu bandeja de entrada o spam.',
+          };
+        }
+      }
+
+      // Escenario 3: Intentar registrar nueva cuenta vinculada
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password: params.password,
+        options: {
+          data: {
+            name: cleanName,
+            relationship: params.relationship,
+          },
+        },
+      });
+
+      if (signUpError || !signUpData.user) {
+        const raw = (signUpError?.message || '').toLowerCase();
+        if (raw.includes('already registered') || raw.includes('user already exists') || raw.includes('already been registered')) {
+          return {
+            success: false,
+            error: 'Este correo ya tiene una cuenta registrada en MELOMUS, pero la contraseña no coincide. Por favor verifica tu contraseña.',
+          };
+        } else if (raw.includes('password') && (raw.includes('short') || raw.includes('character'))) {
+          return {
+            success: false,
+            error: 'La contraseña debe contener al menos 6 caracteres.',
+          };
+        }
+        return {
+          success: false,
+          error: signUpError?.message || 'Error al crear la cuenta para vincular.',
+        };
+      }
+
+      // Asegurar sesión activa si la creación fue exitosa
+      if (!signUpData.session) {
+        await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: params.password,
+        });
+      }
+
+      // Reclamar vínculo coadministrador en la familia
+      const { data: claimData, error: claimError } = await supabase.rpc('claim_coadmin_link', {
+        p_token: cleanToken,
+        p_name: cleanName,
+      });
+
+      if (claimError || !claimData?.success) {
+        return {
+          success: false,
+          error: claimData?.message || claimError?.message || 'Error al vincular con la familia.',
+        };
+      }
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', signUpData.user.id)
+        .single();
+
+      const userProfile: AuthUser = profile ? {
+        id: profile.id,
+        familyId: profile.family_id,
+        email: profile.email,
+        name: profile.name,
+        role: profile.role,
+        relationship: profile.relationship,
+        memberId: profile.member_id,
+        avatarColor: profile.avatar_color,
+        avatarEmoji: profile.avatar_emoji,
+      } : {
+        id: signUpData.user.id,
+        familyId: claimData.family_id,
+        email: cleanEmail,
+        name: cleanName,
+        role: 'FAMILY_ADULT',
+        relationship: params.relationship,
+        memberId: params.relationship,
+        avatarColor: params.relationship === 'papa' ? '#3b82f6' : '#ec4899',
+        avatarEmoji: params.relationship === 'papa' ? '🌿' : '🌸',
+      };
+
+      setLocalStoredUser(userProfile);
+      return {
+        success: true,
+        data: {
+          user: userProfile,
+          familyId: claimData.family_id,
+          relationship: claimData.relationship,
+        },
+      };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Error inesperado durante la vinculación.',
       };
     }
   },
